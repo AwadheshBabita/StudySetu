@@ -1,6 +1,7 @@
 'use client';
 
 import { ChangeEvent, useState } from 'react';
+import { examCategories } from '@/data/exam-categories';
 import {
   examRequirements,
   ExamRequirement,
@@ -175,6 +176,11 @@ async function checkFile(
 export default function ExamRequirementsPage() {
   const [selectedExam, setSelectedExam] =
     useState<ExamRequirement | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState('');
+
+  const filteredExams = selectedCategory
+    ? examRequirements.filter((exam) => exam.category === selectedCategory)
+    : [];
   const [photo, setPhoto] = useState<File | null>(null);
   const [signature, setSignature] = useState<File | null>(null);
   const [results, setResults] = useState<CheckResult[]>([]);
@@ -274,6 +280,31 @@ export default function ExamRequirementsPage() {
         <section className="rounded-2xl border p-6 shadow-sm">
           <label className="block">
             <span className="mb-2 block font-semibold">
+              Select Category
+            </span>
+
+            <select
+              value={selectedCategory}
+              onChange={(event) => {
+                setSelectedCategory(event.target.value);
+                setSelectedExam(null);
+                setPhoto(null);
+                setSignature(null);
+                setResults([]);
+              }}
+              className="mb-4 w-full rounded-lg border bg-transparent p-3"
+            >
+              <option value="">Select a category</option>
+              {examCategories
+                .filter((category) => category.active)
+                .map((category) => (
+                  <option key={category.id} value={category.name}>
+                    {category.name}
+                  </option>
+                ))}
+            </select>
+
+            <span className="mb-2 block font-semibold">
               Select Exam
             </span>
 
@@ -286,7 +317,7 @@ export default function ExamRequirementsPage() {
                 Select an exam
               </option>
 
-              {examRequirements.map((exam) => (
+              {filteredExams.map((exam) => (
                 <option key={exam.id} value={exam.id}>
                   {exam.exam}
                 </option>
@@ -294,7 +325,7 @@ export default function ExamRequirementsPage() {
             </select>
           </label>
 
-          {examRequirements.length === 0 && (
+          {selectedCategory && filteredExams.length === 0 && (
             <div className="mt-5 rounded-xl border p-4">
               <p className="font-semibold">
                 Requirements database is ready.
