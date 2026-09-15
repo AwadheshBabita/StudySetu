@@ -48,6 +48,7 @@ async function checkFile(
   requirement: FileRequirement
 ): Promise<CheckResult[]> {
   const results: CheckResult[] = [];
+
   const kb = file.size / 1024;
 
   const extension = file.name.split('.').pop()?.toLowerCase() || '';
@@ -195,6 +196,15 @@ export default function ExamRequirementsPage() {
 
     setChecking(true);
     setResults([]);
+
+    if (!selectedExam.verified) {
+      setResults([{
+        status: 'info',
+        message: 'Official requirements for this exam are not verified yet. Please check the latest official notification before submission.',
+      }]);
+      setChecking(false);
+      return;
+    }
 
     try {
       const nextResults: CheckResult[] = [];
