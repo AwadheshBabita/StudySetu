@@ -3,10 +3,13 @@
 import { useState } from 'react';
 import { examCategories } from '@/data/exam-categories';
 import { exams } from '@/data/exams';
+import { subjects } from '@/data/subjects';
+import { topics } from '@/data/topics';
 
 export default function StudyPage() {
   const [selectedCategory, setSelectedCategory] = useState('');
   const [selectedExam, setSelectedExam] = useState('');
+  const [selectedSubject, setSelectedSubject] = useState('');
 
   const filteredExams = selectedCategory
     ? exams.filter(
@@ -18,9 +21,26 @@ export default function StudyPage() {
     (exam) => exam.id === selectedExam
   );
 
+  const filteredSubjects = selectedExam
+    ? subjects.filter(
+        (subject) => subject.examId === selectedExam && subject.active
+      )
+    : [];
+
+  const filteredTopics = selectedSubject
+    ? topics.filter(
+        (topic) => topic.subjectId === selectedSubject && topic.active
+      )
+    : [];
+
+  const selectedSubjectData = subjects.find(
+    (subject) => subject.id === selectedSubject
+  );
+
   const handleCategoryChange = (categoryId: string) => {
     setSelectedCategory(categoryId);
     setSelectedExam('');
+    setSelectedSubject('');
   };
 
   return (
@@ -118,6 +138,61 @@ export default function StudyPage() {
         )}
 
         {selectedExamData && (
+          <section className="mt-6 rounded-2xl bg-white p-6 shadow-sm ring-1 ring-gray-200">
+            <h2 className="text-xl font-bold text-gray-900">
+              3. Select Subject
+            </h2>
+
+            <div className="mt-5 grid gap-4 sm:grid-cols-2">
+              {filteredSubjects.map((subject) => {
+                const isSelected = selectedSubject === subject.id;
+
+                return (
+                  <button
+                    key={subject.id}
+                    type="button"
+                    onClick={() => setSelectedSubject(subject.id)}
+                    className={`rounded-xl border p-4 text-left transition ${
+                      isSelected
+                        ? 'border-blue-600 bg-blue-50 ring-2 ring-blue-100'
+                        : 'border-gray-200 bg-white hover:border-blue-300 hover:bg-gray-50'
+                    }`}
+                  >
+                    <h3 className="font-bold text-gray-900">
+                      {subject.name}
+                    </h3>
+                    <p className="mt-1 text-sm text-gray-600">
+                      {subject.description}
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
+        {selectedSubjectData && (
+          <section className="mt-6 rounded-2xl bg-white p-6 shadow-sm ring-1 ring-gray-200">
+            <h2 className="text-xl font-bold text-gray-900">
+              4. Select Topic
+            </h2>
+
+            <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {filteredTopics.map((topic) => (
+                <button
+                  key={topic.id}
+                  type="button"
+                  className="rounded-xl border border-gray-200 bg-white p-4 text-left font-semibold text-gray-900 transition hover:border-blue-300 hover:bg-gray-50"
+                >
+                  {topic.name}
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {selectedExamData && (
+
           <section className="mt-6 rounded-2xl bg-gray-900 p-6 text-white">
             <p className="text-sm font-semibold text-gray-300">
               SELECTED EXAM
