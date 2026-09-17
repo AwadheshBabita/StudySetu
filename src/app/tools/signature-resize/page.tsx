@@ -1,268 +1,281 @@
-'use client';
+"use client";
 
-import { ChangeEvent, useEffect, useState } from 'react';
+import { useState, useRef, ChangeEvent } from "react";
+
+interface SignPreset {
+  id: string;
+  name: string;
+  width: number;
+  height: number;
+  targetKB: number;
+}
+
+const SIGN_PRESETS: SignPreset[] = [
+  { id: "custom", name: "Custom (कस्टम साइज)", width: 280, height: 120, targetKB: 15 },
+  { id: "ssc", name: "SSC (CGL, CHSL, MTS) — 10-20 KB (4x2 cm)", width: 280, height: 120, targetKB: 15 },
+  { id: "upsc", name: "UPSC Civil Services — 20-50 KB", width: 350, height: 150, targetKB: 30 },
+  { id: "uppolice", name: "UP Police Constable/SI — 5-20 KB", width: 240, height: 100, targetKB: 12 },
+  { id: "ibps", name: "IBPS / SBI Bank — 10-20 KB (140x60 px)", width: 280, height: 120, targetKB: 15 },
+  { id: "railway", name: "RRB Railway — 10-20 KB", width: 260, height: 110, targetKB: 14 },
+];
 
 export default function SignatureResizePage() {
-  const [file, setFile] = useState<File | null>(null);
-  const [preview, setPreview] = useState('');
-  const [width, setWidth] = useState(300);
-  const [height, setHeight] = useState(100);
-  const [quality, setQuality] = useState(90);
-  const [lockRatio, setLockRatio] = useState(false);
-  const [originalWidth, setOriginalWidth] = useState(0);
-  const [originalHeight, setOriginalHeight] = useState(0);
-  const [error, setError] = useState('');
+  const [imageSrc, setImageSrc] = useState<string | null>(null);
+  const [selectedPreset, setSelectedPreset] = useState<string>("ssc");
+  const [width, setWidth] = useState<number>(280);
+  const [height, setHeight] = useState<number>(120);
+  const [targetKB, setTargetKB] = useState<number>(15);
+  const [enhanceContrast, setEnhanceContrast] = useState<boolean>(true);
 
-  useEffect(() => {
-    return () => {
-      if (preview) URL.revokeObjectURL(preview);
-    };
-  }, [preview]);
+  const [processing, setProcessing] = useState<boolean>(false);
+  const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
+  const [resultInfo, setResultInfo] = useState<{ sizeKB: number; width: number; height: number } | null>(null);
 
-  const handleFile = (event: ChangeEvent<HTMLInputElement>) => {
-    const selected = event.target.files?.[0];
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-    if (!selected) return;
+  const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-    if (!selected.type.startsWith('image/')) {
-      setError('Please select a valid signature image.');
-      return;
-    }
+    if (downloadUrl) URL.revokeObjectURL(downloadUrl);
+    setDownloadUrl(null);
+    setResultInfo(null);
 
-    if (selected.size > 10 * 1024 * 1024) {
-      setError('Maximum file size is 10 MB.');
-      return;
-    }
-
-    setError('');
-    setFile(selected);
-
-    const url = URL.createObjectURL(selected);
-    setPreview(url);
-
-    const img = new Image();
-
-    img.onload = () => {
-      setOriginalWidth(img.naturalWidth);
-      setOriginalHeight(img.naturalHeight);
-      setWidth(img.naturalWidth);
-      setHeight(img.naturalHeight);
-    };
-
-    img.src = url;
+    const reader = new FileReader();
+    reader.onload = () => setImageSrc(reader.result as string);
+    reader.readAsDataURL(file);
   };
 
-  const updateWidth = (newWidth: number) => {
-    setWidth(newWidth);
-
-    if (lockRatio && originalWidth > 0) {
-      setHeight(
-        Math.max(1, Math.round((newWidth / originalWidth) * originalHeight))
-      );
+  const handlePresetChange = (presetId: string) => {
+    setSelectedPreset(presetId);
+    const preset = SIGN_PRESETS.find((p) => p.id === presetId);
+    if (preset && preset.id !== "custom") {
+      setWidth(preset.width);
+      setHeight(preset.height);
+      setTargetKB(preset.targetKB);
     }
   };
 
-  const updateHeight = (newHeight: number) => {
-    setHeight(newHeight);
+  const processSignature = async () => {
+    if (!imageSrc) return;
+    setProcessing(true);
 
-    if (lockRatio && originalHeight > 0) {
-      setWidth(
-        Math.max(1, Math.round((newHeight / originalHeight) * originalWidth))
-      );
-    }
-  };
+    try {
+      const img = new Image();
+      img.src = imageSrc;
+      await new Promise((resolve) => {
+        img.onload = resolve;
+      });
 
-  const resizeSignature = () => {
-    if (!file || !originalWidth || !originalHeight) return;
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("Canvas unsupported");
 
-    const img = new Image();
-    const objectUrl = URL.createObjectURL(file);
+      // Fill clean pure white background
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, width, height);
 
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.max(1, width);
-      canvas.height = Math.max(1, height);
+      // Fit with aspect ratio preservation (no stretch)
+      const scale = Math.min(width / img.width, height / img.height);
+      const drawW = img.width * scale;
+      const drawH = img.height * scale;
+      const drawX = (width - drawW) / 2;
+      const drawY = (height - drawH) / 2;
 
-      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, drawX, drawY, drawW, drawH);
 
-      if (!ctx) {
-        setError('Could not process the signature.');
-        URL.revokeObjectURL(objectUrl);
-        return;
+      // Enhance Contrast (Deep Black Signature, Clean White Paper)
+      if (enhanceContrast) {
+        const imgData = ctx.getImageData(0, 0, width, height);
+        const d = imgData.data;
+        for (let i = 0; i < d.length; i += 4) {
+          const avg = (d[i] + d[i + 1] + d[i + 2]) / 3;
+          // Thresholding for clean signature
+          if (avg > 185) {
+            d[i] = 255;
+            d[i + 1] = 255;
+            d[i + 2] = 255;
+          } else {
+            const factor = avg * 0.75; // darken ink
+            d[i] = factor;
+            d[i + 1] = factor;
+            d[i + 2] = factor;
+          }
+        }
+        ctx.putImageData(imgData, 0, 0);
       }
 
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      // Exact KB binary search compression
+      let minQ = 0.05;
+      let maxQ = 0.98;
+      let bestBlob: Blob | null = null;
+      const targetBytes = targetKB * 1024;
 
-      canvas.toBlob(
-        (blob) => {
-          if (!blob) {
-            setError('Could not create the resized signature.');
-            URL.revokeObjectURL(objectUrl);
-            return;
-          }
+      for (let i = 0; i < 6; i++) {
+        const midQ = (minQ + maxQ) / 2;
+        const blob: Blob = await new Promise((res) => {
+          canvas.toBlob((b) => res(b!), "image/jpeg", midQ);
+        });
 
-          const downloadUrl = URL.createObjectURL(blob);
-          const link = document.createElement('a');
+        bestBlob = blob;
+        if (blob.size > targetBytes) {
+          maxQ = midQ;
+        } else {
+          minQ = midQ;
+        }
+      }
 
-          link.href = downloadUrl;
-          link.download = `studysetu-signature-${canvas.width}x${canvas.height}.jpg`;
-          link.click();
-
-          URL.revokeObjectURL(downloadUrl);
-          URL.revokeObjectURL(objectUrl);
-        },
-        'image/jpeg',
-        quality / 100
-      );
-    };
-
-    img.src = objectUrl;
-  };
-
-  const reset = () => {
-    setFile(null);
-    setPreview('');
-    setWidth(300);
-    setHeight(100);
-    setQuality(90);
-    setOriginalWidth(0);
-    setOriginalHeight(0);
-    setError('');
+      if (bestBlob) {
+        if (downloadUrl) URL.revokeObjectURL(downloadUrl);
+        const url = URL.createObjectURL(bestBlob);
+        setDownloadUrl(url);
+        setResultInfo({
+          sizeKB: Number((bestBlob.size / 1024).toFixed(1)),
+          width,
+          height,
+        });
+      }
+    } catch (err) {
+      console.error(err);
+      alert("हस्ताक्षर प्रोसेस करने में त्रुटि आई।");
+    } finally {
+      setProcessing(false);
+    }
   };
 
   return (
-    <main className="min-h-screen bg-gray-50 px-4 py-8">
-      <div className="mx-auto max-w-4xl">
-        <h1 className="text-3xl font-bold text-gray-900">
-          Signature Resize
+    <main className="min-h-screen bg-slate-50 py-10 px-4 text-slate-800">
+      <div className="max-w-2xl mx-auto bg-white p-6 sm:p-8 rounded-2xl shadow-sm border border-slate-200">
+        <h1 className="text-2xl sm:text-3xl font-bold text-blue-700 text-center">
+          Signature Resizer (Exam & Forms)
         </h1>
-
-        <p className="mt-2 text-gray-600">
-          Resize your signature for online applications and forms.
-          Processing happens in your browser.
+        <p className="text-sm text-slate-500 text-center mt-1">
+          हस्ताक्षर को 10-20 KB में सटीक अनुपात और गहरी स्याही के साथ सेट करें
         </p>
 
-        <div className="mt-8 rounded-2xl bg-white p-6 shadow-sm ring-1 ring-gray-200">
-          <label className="block text-sm font-semibold text-gray-800">
-            Select Signature
-          </label>
-
+        {/* Upload Input */}
+        <div className="mt-6 border-2 border-dashed border-blue-200 bg-blue-50/40 rounded-xl p-6 text-center">
           <input
-            className="mt-3 block w-full rounded-lg border border-gray-300 p-3"
             type="file"
-            accept="image/jpeg,image/png,image/webp"
-            onChange={handleFile}
+            accept="image/*"
+            ref={fileInputRef}
+            onChange={handleFileChange}
+            className="hidden"
           />
-
-          {error && (
-            <p className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">
-              {error}
-            </p>
-          )}
-
-          {file && (
-            <div className="mt-6 grid gap-6 md:grid-cols-2">
-              <div>
-                <p className="text-sm font-semibold">Original Signature</p>
-
-                <div className="mt-3 flex min-h-48 items-center justify-center rounded-xl border bg-white p-4">
-                  <img
-                    src={preview}
-                    alt="Selected signature"
-                    className="max-h-40 max-w-full object-contain"
-                  />
-                </div>
-
-                <div className="mt-3 text-sm text-gray-600">
-                  <p>File: {file.name}</p>
-                  <p>
-                    Dimensions: {originalWidth} × {originalHeight}px
-                  </p>
-                  <p>Size: {(file.size / 1024).toFixed(1)} KB</p>
-                  <p>Format: {file.type}</p>
-                </div>
-              </div>
-
-              <div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-sm text-gray-600">Width</label>
-                    <input
-                      className="mt-1 w-full rounded-lg border border-gray-300 p-3"
-                      type="number"
-                      min="1"
-                      value={width}
-                      onChange={(e) => updateWidth(Number(e.target.value))}
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-sm text-gray-600">Height</label>
-                    <input
-                      className="mt-1 w-full rounded-lg border border-gray-300 p-3"
-                      type="number"
-                      min="1"
-                      value={height}
-                      onChange={(e) => updateHeight(Number(e.target.value))}
-                    />
-                  </div>
-                </div>
-
-                <label className="mt-4 flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={lockRatio}
-                    onChange={(e) => setLockRatio(e.target.checked)}
-                  />
-                  Keep aspect ratio
-                </label>
-
-                <div className="mt-5">
-                  <label className="text-sm font-semibold">
-                    Quality: {quality}%
-                  </label>
-
-                  <input
-                    className="mt-2 w-full"
-                    type="range"
-                    min="10"
-                    max="100"
-                    value={quality}
-                    onChange={(e) => setQuality(Number(e.target.value))}
-                  />
-                </div>
-
-                <button
-                  type="button"
-                  onClick={resizeSignature}
-                  className="mt-6 w-full rounded-xl bg-black px-5 py-3 font-semibold text-white hover:opacity-90"
-                >
-                  Resize & Download
-                </button>
-
-                <button
-                  type="button"
-                  onClick={reset}
-                  className="mt-3 w-full rounded-xl border border-gray-300 px-5 py-3 font-semibold"
-                >
-                  Reset
-                </button>
-              </div>
-            </div>
-          )}
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="bg-blue-600 text-white px-5 py-2.5 rounded-lg font-medium hover:bg-blue-700 transition"
+          >
+            ✍️ हस्ताक्षर फोटो चुनें
+          </button>
+          <p className="text-xs text-slate-500 mt-2">सफ़ेद कागज़ पर किए गए साइन की फ़ोटो चुनें</p>
         </div>
 
-        <section className="mt-8 rounded-2xl bg-white p-6 ring-1 ring-gray-200">
-          <h2 className="text-xl font-bold">
-            Why signature dimensions matter
-          </h2>
+        {imageSrc && (
+          <div className="mt-6 space-y-5">
+            {/* Exam Preset Dropdown */}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                एग्ज़ाम प्रीसेट चुनें (1-Click)
+              </label>
+              <select
+                value={selectedPreset}
+                onChange={(e) => handlePresetChange(e.target.value)}
+                className="w-full border border-slate-300 p-2.5 rounded-lg text-sm bg-white"
+              >
+                {SIGN_PRESETS.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-          <p className="mt-2 text-gray-600">
-            Online applications often require a signature within specific
-            dimensions and file-size limits. StudySetu prepares the signature
-            directly in your browser without uploading it to a server.
-          </p>
-        </section>
+            {/* Custom Inputs */}
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Width (px)</label>
+                <input
+                  type="number"
+                  value={width}
+                  onChange={(e) => {
+                    setWidth(Number(e.target.value));
+                    setSelectedPreset("custom");
+                  }}
+                  className="w-full border border-slate-300 p-2 rounded-lg text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Height (px)</label>
+                <input
+                  type="number"
+                  value={height}
+                  onChange={(e) => {
+                    setHeight(Number(e.target.value));
+                    setSelectedPreset("custom");
+                  }}
+                  className="w-full border border-slate-300 p-2 rounded-lg text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Target KB</label>
+                <input
+                  type="number"
+                  value={targetKB}
+                  onChange={(e) => {
+                    setTargetKB(Number(e.target.value));
+                    setSelectedPreset("custom");
+                  }}
+                  className="w-full border border-slate-300 p-2 rounded-lg text-sm"
+                />
+              </div>
+            </div>
+
+            {/* Ink Enhancer Toggle */}
+            <div className="border border-slate-200 rounded-xl p-3 bg-slate-50">
+              <label className="flex items-center space-x-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={enhanceContrast}
+                  onChange={(e) => setEnhanceContrast(e.target.checked)}
+                  className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-4 h-4"
+                />
+                <span className="text-xs sm:text-sm font-medium text-slate-700">
+                  कागज़ को साफ़ सफ़ेद और हस्ताक्षर को गहरा काला (High Contrast) करें
+                </span>
+              </label>
+            </div>
+
+            {/* Process Button */}
+            <button
+              onClick={processSignature}
+              disabled={processing}
+              className="w-full bg-blue-600 text-white font-semibold py-3 rounded-xl hover:bg-blue-700 transition disabled:opacity-50"
+            >
+              {processing ? "हस्ताक्षर तैयार हो रहा है..." : "हस्ताक्षर रिसाइज करें"}
+            </button>
+          </div>
+        )}
+
+        {/* Result */}
+        {resultInfo && downloadUrl && (
+          <div className="mt-6 p-4 rounded-xl bg-green-50 border border-green-200 text-center">
+            <p className="text-sm font-bold text-green-800">हस्ताक्षर सफलतापूर्वक तैयार हो गया!</p>
+            <p className="text-xs text-green-700 mt-1">
+              साइज: <strong>{resultInfo.sizeKB} KB</strong> | डाइमेंशन: <strong>{resultInfo.width}x{resultInfo.height} px</strong>
+            </p>
+            <a
+              href={downloadUrl}
+              download="studysetu-signature.jpg"
+              className="inline-block mt-3 bg-green-600 text-white px-6 py-2.5 rounded-lg text-sm font-bold hover:bg-green-700 transition"
+            >
+              📥 डाउनलोड हस्ताक्षर
+            </a>
+          </div>
+        )}
       </div>
     </main>
   );
