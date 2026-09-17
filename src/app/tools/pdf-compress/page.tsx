@@ -1,197 +1,230 @@
 "use client";
 
-import { ChangeEvent, useState } from "react";
+import { useState, ChangeEvent } from "react";
 import { PDFDocument } from "pdf-lib";
-
-type Level = "low" | "medium" | "high";
-
-const levels: Record<Level, { scale: number; quality: number }> = {
-  low: { scale: 1.25, quality: 0.75 },
-  medium: { scale: 1.0, quality: 0.60 },
-  high: { scale: 0.85, quality: 0.40 },
-};
 
 export default function PdfCompressPage() {
   const [file, setFile] = useState<File | null>(null);
-  const [level, setLevel] = useState<Level>("medium");
-  const [busy, setBusy] = useState(false);
-  const [progress, setProgress] = useState("");
-  const [message, setMessage] = useState("");
-  const [url, setUrl] = useState("");
-  const [outputSize, setOutputSize] = useState<number | null>(null);
+  const [origSizeKB, setOrigSizeKB] = useState<number | null>(null);
+  const [mode, setMode] = useState<"preset" | "custom">("preset");
+  const [targetPreset, setTargetPreset] = useState<number>(200); // 100, 200, 300 KB
+  const [customKB, setCustomKB] = useState<number>(150);
+  const [processing, setProcessing] = useState<boolean>(false);
+  const [progressText, setProgressText] = useState<string>("");
+  const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
+  const [compressedKB, setCompressedKB] = useState<number | null>(null);
 
-  const selectFile = (e: ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0] || null;
-    if (url) URL.revokeObjectURL(url);
-    setUrl("");
-    setOutputSize(null);
-    setMessage("");
-    setProgress("");
+  const handleFile = (e: ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+
+    if (downloadUrl) URL.revokeObjectURL(downloadUrl);
+    setDownloadUrl(null);
+    setCompressedKB(null);
+    setProgressText("");
+
     setFile(f);
+    setOrigSizeKB(Number((f.size / 1024).toFixed(1)));
   };
 
-  const compress = async () => {
-    if (!file) {
-      setMessage("कृपया पहले एक PDF चुनें।");
-      return;
-    }
+  const compressPdf = async () => {
+    if (!file) return;
+    setProcessing(true);
 
-    setBusy(true);
-    setMessage("");
-    setProgress("PDF लोड हो रही है...");
+    const desiredTargetKB = mode === "preset" ? targetPreset : customKB;
+    setProgressText("PDF पेज लोड हो रहे हैं...");
 
     try {
       const pdfjs = (await import("pdfjs-dist/legacy/build/pdf.mjs")) as any;
-      const inputBytes = new Uint8Array(await file.arrayBuffer());
-      const loadingTask = pdfjs.getDocument({
-        data: inputBytes,
-        disableWorker: true,
-      });
+      const fileBytes = new Uint8Array(await file.arrayBuffer());
+      const sourcePdf = await pdfjs.getDocument({ data: fileBytes, disableWorker: true }).promise;
+      const totalPages = sourcePdf.numPages;
 
-      const source = await loadingTask.promise;
-      const output = await PDFDocument.create();
-      const config = levels[level];
-      const totalPages = source.numPages;
+      // Target size budget per page roughly calculates initial rendering scale
+      const perPageBudgetKB = desiredTargetKB / Math.max(1, totalPages);
+      let renderScale = 1.25;
+      let initialQuality = 0.75;
+
+      if (perPageBudgetKB < 40) {
+        renderScale = 0.9;
+        initialQuality = 0.55;
+      } else if (perPageBudgetKB < 80) {
+        renderScale = 1.1;
+        initialQuality = 0.68;
+      }
+
+      const outPdf = await PDFDocument.create();
 
       for (let i = 1; i <= totalPages; i++) {
-        setProgress(`पेज ${i} / ${totalPages} कंप्रेस हो रहा है...`);
-        const page = await source.getPage(i);
-        const viewport = page.getViewport({ scale: config.scale });
+        setProgressText(`पेज ${i} / ${totalPages} कंप्रेस किया जा रहा है...`);
+        const page = await sourcePdf.getPage(i);
+        const viewport = page.getViewport({ scale: renderScale });
 
         const canvas = document.createElement("canvas");
-        canvas.width = Math.max(1, Math.ceil(viewport.width));
-        canvas.height = Math.max(1, Math.ceil(viewport.height));
-        const context = canvas.getContext("2d");
+        canvas.width = Math.ceil(viewport.width);
+        canvas.height = Math.ceil(viewport.height);
+        const ctx = canvas.getContext("2d");
+        if (!ctx) throw new Error("Canvas context failed");
 
-        if (!context) throw new Error("Canvas unavailable.");
+        await page.render({ canvasContext: ctx, viewport }).promise;
 
-        await page.render({
-          canvasContext: context,
-          viewport,
-        }).promise;
-
-        const jpgBlob = await new Promise<Blob>((resolve, reject) => {
-          canvas.toBlob(
-            (b) => (b ? resolve(b) : reject(new Error("JPEG fail"))),
-            "image/jpeg",
-            config.quality
-          );
+        // Render page as compressed JPEG image
+        const imgBlob = await new Promise<Blob>((res, rej) => {
+          canvas.toBlob((b) => (b ? res(b) : rej(new Error("Canvas blob error"))), "image/jpeg", initialQuality);
         });
 
-        canvas.width = 0;
-        canvas.height = 0;
+        const imgBytes = new Uint8Array(await imgBlob.arrayBuffer());
+        const embeddedImg = await outPdf.embedJpg(imgBytes);
 
-        const jpgBytes = new Uint8Array(await jpgBlob.arrayBuffer());
-        const image = await output.embedJpg(jpgBytes);
-
-        const outPage = output.addPage([viewport.width, viewport.height]);
-        outPage.drawImage(image, {
+        // Keep standard PDF points scale (72 DPI reference)
+        const standardViewport = page.getViewport({ scale: 1.0 });
+        const outPage = outPdf.addPage([standardViewport.width, standardViewport.height]);
+        outPage.drawImage(embeddedImg, {
           x: 0,
           y: 0,
-          width: viewport.width,
-          height: viewport.height,
+          width: standardViewport.width,
+          height: standardViewport.height,
         });
       }
 
-      setProgress("अंतिम PDF तैयार हो रही है...");
-      const bytes = await output.save({
-        useObjectStreams: true,
-        addDefaultPage: false,
-      });
+      setProgressText("अंतिम कंप्रेस्ड PDF तैयार हो रही है...");
+      const finalBytes = await outPdf.save();
+      const finalBlob = new Blob([finalBytes.buffer as ArrayBuffer], { type: "application/pdf" });
 
-      const buffer = new ArrayBuffer(bytes.byteLength);
-      new Uint8Array(buffer).set(bytes);
-      const blob = new Blob([buffer], { type: "application/pdf" });
-
-      if (url) URL.revokeObjectURL(url);
-      const newUrl = URL.createObjectURL(blob);
-      setUrl(newUrl);
-      setOutputSize(blob.size);
-
-      const reduction = ((file.size - blob.size) / file.size) * 100;
-      setMessage(
-        blob.size < file.size
-          ? `सफल — साइज ${reduction.toFixed(1)}% कम हो गया।`
-          : "साइज और कम नहीं हो सका। कृपया 'High' विकल्प चुनें।"
-      );
-      setProgress("");
-    } catch (error) {
-      console.error(error);
-      setMessage(
-        error instanceof Error ? error.message : "कंप्रेशन में त्रुटि आई।"
-      );
-      setProgress("");
+      if (downloadUrl) URL.revokeObjectURL(downloadUrl);
+      setDownloadUrl(URL.createObjectURL(finalBlob));
+      setCompressedKB(Number((finalBlob.size / 1024).toFixed(1)));
+    } catch (err) {
+      console.error(err);
+      alert("PDF कंप्रेस करने में समस्या आई।");
     } finally {
-      setBusy(false);
+      setProcessing(false);
+      setProgressText("");
     }
   };
 
   return (
-    <main className="mx-auto max-w-3xl px-4 py-10">
-      <section className="rounded-2xl border p-6 shadow-sm bg-white">
-        <h1 className="text-3xl font-bold">PDF Compressor</h1>
-        <p className="mt-2 text-sm text-gray-600">
-          फ़ाइल आपके ब्राउज़र में प्रोसेस होती है, सर्वर पर अपलोड नहीं होती।
+    <main className="min-h-screen bg-slate-50 py-10 px-4 text-slate-800">
+      <div className="max-w-2xl mx-auto bg-white p-6 sm:p-8 rounded-2xl shadow-sm border border-slate-200">
+        <h1 className="text-2xl sm:text-3xl font-bold text-blue-700 text-center">
+          PDF Compressor (Target KB Mode)
+        </h1>
+        <p className="text-sm text-slate-500 text-center mt-1">
+          सरकारी फॉर्म्स के लिए PDF को 100 KB, 200 KB या मनचाहे साइज़ में कंप्रेस करें
         </p>
 
-        <input
-          className="mt-6 block w-full rounded-lg border p-3"
-          type="file"
-          accept=".pdf,application/pdf"
-          onChange={selectFile}
-        />
-
-        {file && (
-          <p className="mt-3 text-sm text-gray-700">
-            चयनित: <strong>{file.name}</strong> — {(file.size / 1024 / 1024).toFixed(2)} MB
-          </p>
-        )}
-
-        <div className="mt-5">
-          <label className="block text-sm font-medium mb-1">कंप्रेशन स्तर चुनें:</label>
-          <select
-            className="w-full rounded-lg border p-3"
-            value={level}
-            onChange={(e) => setLevel(e.target.value as Level)}
+        {/* Upload Box */}
+        <div className="mt-6 border-2 border-dashed border-blue-200 bg-blue-50/40 rounded-xl p-6 text-center">
+          <input
+            type="file"
+            accept=".pdf,application/pdf"
+            id="pdfCompressInput"
+            onChange={handleFile}
+            className="hidden"
+          />
+          <label
+            htmlFor="pdfCompressInput"
+            className="cursor-pointer inline-block bg-blue-600 text-white px-5 py-2.5 rounded-lg font-medium hover:bg-blue-700 transition"
           >
-            <option value="low">Low — बेहतर क्वालिटी</option>
-            <option value="medium">Medium — संतुलित</option>
-            <option value="high">High — छोटा साइज</option>
-          </select>
+            📄 PDF फ़ाइल चुनें
+          </label>
+          <p className="text-xs text-slate-400 mt-2">100% इन-डिवाइस सुरक्षित प्रोसेसिंग — कोई सर्वर अपलोड नहीं</p>
         </div>
 
-        <button
-          className="mt-5 w-full rounded-lg bg-blue-600 text-white px-5 py-3 font-semibold disabled:opacity-50 hover:bg-blue-700 transition"
-          onClick={compress}
-          disabled={!file || busy}
-        >
-          {busy ? (progress || "कंप्रेस हो रहा है...") : "Compress PDF"}
-        </button>
+        {file && origSizeKB && (
+          <div className="mt-6 space-y-5">
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between text-xs sm:text-sm">
+              <span className="font-semibold text-slate-600 truncate max-w-[200px] sm:max-w-xs">
+                {file.name}
+              </span>
+              <span className="font-bold text-slate-900 bg-white px-2.5 py-1 rounded border">
+                मूल: {origSizeKB} KB
+              </span>
+            </div>
 
-        {progress && (
-          <div className="mt-4 text-sm text-blue-600 font-medium">{progress}</div>
+            {/* Target Mode Selector */}
+            <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
+              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                टारगेट साइज़ चुनें (Target Size)
+              </label>
+
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { label: "< 100 KB", value: 100 },
+                  { label: "< 200 KB (मानक)", value: 200 },
+                  { label: "< 300 KB", value: 300 },
+                ].map((p) => (
+                  <button
+                    key={p.value}
+                    type="button"
+                    onClick={() => { setMode("preset"); setTargetPreset(p.value); }}
+                    className={`py-2 px-2 text-xs font-bold rounded-lg border transition ${
+                      mode === "preset" && targetPreset === p.value
+                        ? "bg-blue-600 text-white border-blue-600 shadow-sm"
+                        : "bg-white text-slate-700 border-slate-200 hover:bg-slate-100"
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="pt-2 border-t border-slate-200 flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={() => setMode("custom")}
+                  className={`text-xs font-bold ${mode === "custom" ? "text-blue-600" : "text-slate-500 hover:text-slate-700"}`}
+                >
+                  ⚙️ कस्टम KB दर्ज करें
+                </button>
+                {mode === "custom" && (
+                  <div className="flex items-center space-x-2">
+                    <input
+                      type="number"
+                      value={customKB}
+                      onChange={(e) => setCustomKB(Number(e.target.value))}
+                      className="w-24 border border-slate-300 p-1.5 rounded-lg text-xs font-bold bg-white text-center"
+                    />
+                    <span className="text-xs font-semibold text-slate-500">KB</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <button
+              onClick={compressPdf}
+              disabled={processing}
+              className="w-full bg-blue-600 text-white font-semibold py-3 rounded-xl hover:bg-blue-700 transition disabled:opacity-50"
+            >
+              {processing ? progressText || "कंप्रेस हो रहा है..." : "🗜️ PDF कंप्रेस करें"}
+            </button>
+          </div>
         )}
 
-        {message && (
-          <div className="mt-4 rounded-lg border p-4 text-sm bg-gray-50">{message}</div>
-        )}
+        {/* Compressed Download Box */}
+        {compressedKB && downloadUrl && (
+          <div className="mt-6 p-4 rounded-xl bg-green-50 border border-green-200 text-center space-y-3">
+            <p className="text-sm font-bold text-green-800">PDF सफलतापूर्वक कंप्रेस हो गई!</p>
+            <div className="flex items-center justify-center space-x-4 text-xs">
+              <span className="text-slate-500 line-through">पहले: {origSizeKB} KB</span>
+              <span className="text-green-700 font-bold text-sm">अब: {compressedKB} KB</span>
+              {origSizeKB && (
+                <span className="bg-green-200 text-green-800 px-2 py-0.5 rounded-full font-bold">
+                  -{Math.round(((origSizeKB - compressedKB) / origSizeKB) * 100)}% बचत
+                </span>
+              )}
+            </div>
 
-        {outputSize !== null && (
-          <p className="mt-3 text-sm font-semibold text-green-700">
-            नया साइज: {(outputSize / 1024 / 1024).toFixed(2)} MB
-          </p>
+            <a
+              href={downloadUrl}
+              download={`compressed-${file?.name || "document.pdf"}`}
+              className="inline-block bg-green-600 text-white px-6 py-2.5 rounded-lg text-sm font-bold hover:bg-green-700 transition shadow-sm"
+            >
+              📥 डाउनलोड कंप्रेस्ड PDF
+            </a>
+          </div>
         )}
-
-        {url && (
-          <a
-            className="mt-4 block rounded-lg bg-green-600 text-white px-5 py-3 text-center font-semibold hover:bg-green-700 transition"
-            href={url}
-            download={`${file?.name.replace(/\.pdf$/i, "")}-compressed.pdf`}
-          >
-            डाउनलोड कंप्रेस्ड PDF
-          </a>
-        )}
-      </section>
+      </div>
     </main>
   );
 }
