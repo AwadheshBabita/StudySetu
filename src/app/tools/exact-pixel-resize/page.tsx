@@ -1,311 +1,223 @@
-'use client';
+"use client";
 
-import { ChangeEvent, useEffect, useState } from 'react';
+import { useState, useRef, ChangeEvent } from "react";
 
 export default function ExactPixelResizePage() {
-  const [file, setFile] = useState<File | null>(null);
-  const [preview, setPreview] = useState('');
-  const [resultUrl, setResultUrl] = useState('');
-  const [width, setWidth] = useState(300);
-  const [height, setHeight] = useState(300);
-  const [lockRatio, setLockRatio] = useState(false);
-  const [originalWidth, setOriginalWidth] = useState(0);
-  const [originalHeight, setOriginalHeight] = useState(0);
-  const [format, setFormat] = useState<'image/jpeg' | 'image/png' | 'image/webp'>('image/jpeg');
-  const [quality, setQuality] = useState(90);
-  const [error, setError] = useState('');
+  const [imageSrc, setImageSrc] = useState<string | null>(null);
+  const [width, setWidth] = useState<number>(350);
+  const [height, setHeight] = useState<number>(450);
+  const [lockAspect, setLockAspect] = useState<boolean>(false);
+  const [aspectRatio, setAspectRatio] = useState<number>(1);
+  const [unit, setUnit] = useState<"px" | "cm" | "mm">("px");
+  const [dpi, setDpi] = useState<number>(300);
 
-  useEffect(() => {
-    return () => {
-      if (preview) URL.revokeObjectURL(preview);
-      if (resultUrl) URL.revokeObjectURL(resultUrl);
+  const [processing, setProcessing] = useState<boolean>(false);
+  const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
+  const [resultInfo, setResultInfo] = useState<{ width: number; height: number; sizeKB: number } | null>(null);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (downloadUrl) URL.revokeObjectURL(downloadUrl);
+    setDownloadUrl(null);
+    setResultInfo(null);
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const src = reader.result as string;
+      const img = new Image();
+      img.onload = () => {
+        setImageSrc(src);
+        setWidth(img.naturalWidth);
+        setHeight(img.naturalHeight);
+        setAspectRatio(img.naturalWidth / img.naturalHeight);
+      };
+      img.src = src;
     };
-  }, [preview, resultUrl]);
-
-  const handleFile = (event: ChangeEvent<HTMLInputElement>) => {
-    const selected = event.target.files?.[0];
-
-    if (!selected) return;
-
-    if (!selected.type.startsWith('image/')) {
-      setError('Please select a valid image file.');
-      return;
-    }
-
-    if (selected.size > 10 * 1024 * 1024) {
-      setError('Maximum file size is 10 MB.');
-      return;
-    }
-
-    setError('');
-    setFile(selected);
-
-    const url = URL.createObjectURL(selected);
-    setPreview(url);
-
-    const img = new Image();
-
-    img.onload = () => {
-      setOriginalWidth(img.naturalWidth);
-      setOriginalHeight(img.naturalHeight);
-      setWidth(img.naturalWidth);
-      setHeight(img.naturalHeight);
-    };
-
-    img.src = url;
+    reader.readAsDataURL(file);
   };
 
-  const updateWidth = (value: number) => {
-    setWidth(value);
-
-    if (lockRatio && originalWidth > 0 && originalHeight > 0) {
-      setHeight(Math.max(1, Math.round((value / originalWidth) * originalHeight)));
+  const handleWidthChange = (val: number) => {
+    setWidth(val);
+    if (lockAspect && aspectRatio > 0) {
+      setHeight(Math.round(val / aspectRatio));
     }
   };
 
-  const updateHeight = (value: number) => {
-    setHeight(value);
-
-    if (lockRatio && originalWidth > 0 && originalHeight > 0) {
-      setWidth(Math.max(1, Math.round((value / originalHeight) * originalWidth)));
+  const handleHeightChange = (val: number) => {
+    setHeight(val);
+    if (lockAspect && aspectRatio > 0) {
+      setWidth(Math.round(val * aspectRatio));
     }
   };
 
-  const resizeImage = () => {
-    if (!file || width < 1 || height < 1) {
-      setError('Please select an image and enter valid dimensions.');
-      return;
-    }
+  const toPixels = (value: number): number => {
+    if (unit === "cm") return Math.round((value / 2.54) * dpi);
+    if (unit === "mm") return Math.round((value / 25.4) * dpi);
+    return Math.round(value);
+  };
 
-    setError('');
+  const processResize = async () => {
+    if (!imageSrc) return;
+    setProcessing(true);
 
-    const img = new Image();
+    try {
+      const img = new Image();
+      img.src = imageSrc;
+      await new Promise((res) => { img.onload = res; });
 
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      canvas.width = width;
-      canvas.height = height;
+      const finalW = Math.max(1, toPixels(width));
+      const finalH = Math.max(1, toPixels(height));
 
-      const ctx = canvas.getContext('2d');
+      const canvas = document.createElement("canvas");
+      canvas.width = finalW;
+      canvas.height = finalH;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("Canvas unsupported");
 
-      if (!ctx) {
-        setError('Your browser does not support image processing.');
-        return;
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
+      ctx.drawImage(img, 0, 0, finalW, finalH);
+
+      const blob = await new Promise<Blob | null>((res) => {
+        canvas.toBlob((b) => res(b), "image/jpeg", 0.92);
+      });
+
+      if (blob) {
+        if (downloadUrl) URL.revokeObjectURL(downloadUrl);
+        setDownloadUrl(URL.createObjectURL(blob));
+        setResultInfo({
+          width: finalW,
+          height: finalH,
+          sizeKB: Number((blob.size / 1024).toFixed(1)),
+        });
       }
-
-      if (format === 'image/jpeg') {
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, width, height);
-      }
-
-      ctx.drawImage(img, 0, 0, width, height);
-
-      canvas.toBlob(
-        (blob) => {
-          if (!blob) {
-            setError('Unable to create the resized image.');
-            return;
-          }
-
-          const url = URL.createObjectURL(blob);
-          setResultUrl(url);
-        },
-        format,
-        quality / 100
-      );
-    };
-
-    img.src = preview;
+    } catch (err) {
+      console.error(err);
+      alert("रिसाइज करने में त्रुटि आई।");
+    } finally {
+      setProcessing(false);
+    }
   };
-
-  const reset = () => {
-    setFile(null);
-    setPreview('');
-    setResultUrl('');
-    setOriginalWidth(0);
-    setOriginalHeight(0);
-    setWidth(300);
-    setHeight(300);
-    setError('');
-  };
-
-  const extension = format === 'image/png' ? 'png' : format === 'image/webp' ? 'webp' : 'jpg';
 
   return (
-    <main className="min-h-screen bg-gray-50 p-4 sm:p-6">
-      <div className="mx-auto max-w-4xl">
-        <h1 className="text-3xl font-bold text-gray-900">
-          Exact Pixel Resize
+    <main className="min-h-screen bg-slate-50 py-10 px-4 text-slate-800">
+      <div className="max-w-2xl mx-auto bg-white p-6 sm:p-8 rounded-2xl shadow-sm border border-slate-200">
+        <h1 className="text-2xl sm:text-3xl font-bold text-blue-700 text-center">
+          Exact Pixel & Dimension Resizer
         </h1>
-
-        <p className="mt-2 text-gray-600">
-          Resize your photo to exact width and height in pixels.
+        <p className="text-sm text-slate-500 text-center mt-1">
+          फोटो की चौड़ाई व ऊँचाई को px, cm या mm में सटीक रूप से सेट करें
         </p>
 
-        <div className="mt-8 rounded-2xl border bg-white p-5 shadow-sm">
-          <label className="block text-sm font-semibold text-gray-800">
-            Select Image
-          </label>
-
+        <div className="mt-6 border-2 border-dashed border-blue-200 bg-blue-50/40 rounded-xl p-6 text-center">
           <input
-            className="mt-3 block w-full rounded-lg border border-gray-300 p-3"
             type="file"
-            accept="image/jpeg,image/png,image/webp"
-            onChange={handleFile}
+            accept="image/*"
+            ref={fileInputRef}
+            onChange={handleFileChange}
+            className="hidden"
           />
-
-          {file && (
-            <div className="mt-4 rounded-lg bg-gray-50 p-3 text-sm">
-              <p><strong>File:</strong> {file.name}</p>
-              <p>
-                <strong>Original:</strong> {originalWidth} × {originalHeight}px
-              </p>
-            </div>
-          )}
-
-          {error && (
-            <p className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">
-              {error}
-            </p>
-          )}
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="bg-blue-600 text-white px-5 py-2.5 rounded-lg font-medium hover:bg-blue-700 transition"
+          >
+            📁 फोटो चुनें
+          </button>
         </div>
 
-        {preview && (
-          <div className="mt-6 grid gap-6 md:grid-cols-2">
-            <div className="rounded-2xl border bg-white p-5 shadow-sm">
-              <h2 className="font-semibold">Resize Settings</h2>
-
-              <div className="mt-5 grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-sm text-gray-600">Width (px)</label>
-                  <input
-                    className="mt-1 w-full rounded-lg border border-gray-300 p-3"
-                    type="number"
-                    min="1"
-                    value={width}
-                    onChange={(e) => updateWidth(Number(e.target.value))}
-                  />
-                </div>
-
-                <div>
-                  <label className="text-sm text-gray-600">Height (px)</label>
-                  <input
-                    className="mt-1 w-full rounded-lg border border-gray-300 p-3"
-                    type="number"
-                    min="1"
-                    value={height}
-                    onChange={(e) => updateHeight(Number(e.target.value))}
-                  />
-                </div>
-              </div>
-
-              <label className="mt-4 flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={lockRatio}
-                  onChange={(e) => setLockRatio(e.target.checked)}
-                />
-                Lock aspect ratio
-              </label>
-
-              <div className="mt-5">
-                <label className="text-sm text-gray-600">Output Format</label>
+        {imageSrc && (
+          <div className="mt-6 space-y-5">
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">मापक इकाई (Unit)</label>
                 <select
-                  className="mt-1 w-full rounded-lg border border-gray-300 p-3"
-                  value={format}
-                  onChange={(e) =>
-                    setFormat(e.target.value as typeof format)
-                  }
+                  value={unit}
+                  onChange={(e) => setUnit(e.target.value as any)}
+                  className="w-full border border-slate-300 p-2 rounded-lg text-sm bg-white"
                 >
-                  <option value="image/jpeg">JPG / JPEG</option>
-                  <option value="image/png">PNG</option>
-                  <option value="image/webp">WebP</option>
+                  <option value="px">Pixels (px)</option>
+                  <option value="cm">Centimeter (cm)</option>
+                  <option value="mm">Millimeter (mm)</option>
                 </select>
               </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Width ({unit})</label>
+                <input
+                  type="number"
+                  step={unit === "px" ? "1" : "0.1"}
+                  value={width}
+                  onChange={(e) => handleWidthChange(Number(e.target.value))}
+                  className="w-full border border-slate-300 p-2 rounded-lg text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Height ({unit})</label>
+                <input
+                  type="number"
+                  step={unit === "px" ? "1" : "0.1"}
+                  value={height}
+                  onChange={(e) => handleHeightChange(Number(e.target.value))}
+                  className="w-full border border-slate-300 p-2 rounded-lg text-sm"
+                />
+              </div>
+            </div>
 
-              {format !== 'image/png' && (
-                <div className="mt-5">
-                  <label className="text-sm text-gray-600">
-                    Quality: {quality}%
-                  </label>
+            <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-200">
+              <label className="flex items-center space-x-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={lockAspect}
+                  onChange={(e) => setLockAspect(e.target.checked)}
+                  className="rounded border-slate-300 text-blue-600 w-4 h-4"
+                />
+                <span className="text-xs sm:text-sm text-slate-700 font-medium">
+                  अनुपात बनाए रखें (Lock Aspect Ratio)
+                </span>
+              </label>
+
+              {unit !== "px" && (
+                <div className="flex items-center space-x-2">
+                  <span className="text-xs text-slate-500 font-semibold">DPI:</span>
                   <input
-                    className="mt-2 w-full"
-                    type="range"
-                    min="10"
-                    max="100"
-                    value={quality}
-                    onChange={(e) => setQuality(Number(e.target.value))}
+                    type="number"
+                    value={dpi}
+                    onChange={(e) => setDpi(Number(e.target.value))}
+                    className="w-16 border border-slate-300 p-1 rounded text-xs text-center"
                   />
                 </div>
               )}
-
-              <button
-                onClick={resizeImage}
-                className="mt-6 w-full rounded-lg bg-black px-4 py-3 font-semibold text-white"
-              >
-                Resize Image
-              </button>
-
-              <button
-                onClick={reset}
-                className="mt-3 w-full rounded-lg border border-gray-300 px-4 py-3 font-medium"
-              >
-                Reset
-              </button>
             </div>
 
-            <div className="rounded-2xl border bg-white p-5 shadow-sm">
-              <h2 className="font-semibold">Preview</h2>
-
-              <div className="mt-4 overflow-hidden rounded-lg bg-gray-100 p-3">
-                <img
-                  src={preview}
-                  alt="Original preview"
-                  className="mx-auto max-h-72 object-contain"
-                />
-              </div>
-
-              <p className="mt-3 text-center text-sm text-gray-600">
-                Target: {width} × {height}px
-              </p>
-
-              {resultUrl && (
-                <>
-                  <div className="mt-5 overflow-hidden rounded-lg bg-gray-100 p-3">
-                    <img
-                      src={resultUrl}
-                      alt="Resized result"
-                      className="mx-auto max-h-72 object-contain"
-                    />
-                  </div>
-
-                  <a
-                    href={resultUrl}
-                    download={`studysetu-${width}x${height}.${extension}`}
-                    className="mt-4 block rounded-lg bg-green-600 px-4 py-3 text-center font-semibold text-white"
-                  >
-                    Download Resized Image
-                  </a>
-                </>
-              )}
-            </div>
+            <button
+              onClick={processResize}
+              disabled={processing}
+              className="w-full bg-blue-600 text-white font-semibold py-3 rounded-xl hover:bg-blue-700 transition disabled:opacity-50"
+            >
+              {processing ? "रिसाइज किया जा रहा है..." : "डाइमेंशन लागू करें"}
+            </button>
           </div>
         )}
 
-        <section className="mt-8 rounded-2xl border bg-white p-5 shadow-sm">
-          <h2 className="text-xl font-bold">Why exact pixel size matters?</h2>
-
-          <p className="mt-3 text-gray-600">
-            Online application forms often require photographs and signatures
-            with specific pixel dimensions. This tool lets you create the
-            required dimensions directly in your browser.
-          </p>
-
-          <p className="mt-3 text-sm text-gray-500">
-            Your image is processed locally in your browser and is not uploaded
-            to a server.
-          </p>
-        </section>
+        {resultInfo && downloadUrl && (
+          <div className="mt-6 p-4 rounded-xl bg-green-50 border border-green-200 text-center">
+            <p className="text-sm font-bold text-green-800">फोटो सफलतापूर्वक रिसाइज हो गई!</p>
+            <p className="text-xs text-green-700 mt-1">
+              अंतिम पिक्सल: <strong>{resultInfo.width}x{resultInfo.height} px</strong> | साइज: <strong>{resultInfo.sizeKB} KB</strong>
+            </p>
+            <a
+              href={downloadUrl}
+              download="studysetu-resized.jpg"
+              className="inline-block mt-3 bg-green-600 text-white px-6 py-2.5 rounded-lg text-sm font-bold hover:bg-green-700 transition"
+            >
+              📥 डाउनलोड फोटो
+            </a>
+          </div>
+        )}
       </div>
     </main>
   );

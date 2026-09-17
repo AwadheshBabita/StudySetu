@@ -1,287 +1,166 @@
-'use client';
+"use client";
 
-import { ChangeEvent, useEffect, useState } from 'react';
+import { useState, useRef, ChangeEvent } from "react";
 
-type OutputFormat = 'jpeg' | 'png' | 'webp';
+type Format = "image/jpeg" | "image/png" | "image/webp";
 
 export default function ImageFormatConverterPage() {
-  const [file, setFile] = useState<File | null>(null);
-  const [preview, setPreview] = useState('');
-  const [resultUrl, setResultUrl] = useState('');
-  const [format, setFormat] = useState<OutputFormat>('jpeg');
-  const [quality, setQuality] = useState(90);
-  const [error, setError] = useState('');
-  const [processing, setProcessing] = useState(false);
+  const [imageSrc, setImageSrc] = useState<string | null>(null);
+  const [fileName, setFileName] = useState<string>("");
+  const [targetFormat, setTargetFormat] = useState<Format>("image/png");
+  const [quality, setQuality] = useState<number>(0.92);
+  const [processing, setProcessing] = useState<boolean>(false);
+  const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
+  const [resultKB, setResultKB] = useState<number | null>(null);
 
-  useEffect(() => {
-    return () => {
-      if (preview) URL.revokeObjectURL(preview);
-      if (resultUrl) URL.revokeObjectURL(resultUrl);
-    };
-  }, [preview, resultUrl]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleFile = (event: ChangeEvent<HTMLInputElement>) => {
-    const selected = event.target.files?.[0];
+  const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-    setError('');
-    setResultUrl('');
+    if (downloadUrl) URL.revokeObjectURL(downloadUrl);
+    setDownloadUrl(null);
+    setResultKB(null);
+    setFileName(file.name.substring(0, file.name.lastIndexOf('.')) || "image");
 
-    if (!selected) return;
-
-    if (!selected.type.startsWith('image/')) {
-      setFile(null);
-      setPreview('');
-      setError('Please select a valid image file.');
-      return;
-    }
-
-    if (selected.size > 10 * 1024 * 1024) {
-      setFile(null);
-      setPreview('');
-      setError('Maximum file size is 10 MB.');
-      return;
-    }
-
-    setFile(selected);
-    setPreview(URL.createObjectURL(selected));
+    const reader = new FileReader();
+    reader.onload = () => setImageSrc(reader.result as string);
+    reader.readAsDataURL(file);
   };
 
-  const convertImage = () => {
-    if (!file) {
-      setError('Please upload an image first.');
-      return;
-    }
-
+  const convertFormat = async () => {
+    if (!imageSrc) return;
     setProcessing(true);
-    setError('');
-    setResultUrl('');
 
-    const image = new Image();
+    try {
+      const img = new Image();
+      img.src = imageSrc;
+      await new Promise((res) => { img.onload = res; });
 
-    image.onload = () => {
-      const canvas = document.createElement('canvas');
-      canvas.width = image.naturalWidth;
-      canvas.height = image.naturalHeight;
+      const canvas = document.createElement("canvas");
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("Canvas unsupported");
 
-      const context = canvas.getContext('2d');
-
-      if (!context) {
-        setError('Your browser does not support image conversion.');
-        setProcessing(false);
-        return;
+      if (targetFormat === "image/jpeg") {
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
       }
 
-      if (format === 'jpeg') {
-        context.fillStyle = '#ffffff';
-        context.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0);
+
+      const blob = await new Promise<Blob | null>((res) => {
+        canvas.toBlob((b) => res(b), targetFormat, quality);
+      });
+
+      if (blob) {
+        if (downloadUrl) URL.revokeObjectURL(downloadUrl);
+        setDownloadUrl(URL.createObjectURL(blob));
+        setResultKB(Number((blob.size / 1024).toFixed(1)));
       }
-
-      context.drawImage(image, 0, 0);
-
-      const mimeType =
-        format === 'jpeg'
-          ? 'image/jpeg'
-          : format === 'png'
-            ? 'image/png'
-            : 'image/webp';
-
-      canvas.toBlob(
-        (blob) => {
-          if (!blob) {
-            setError('Could not convert the image.');
-            setProcessing(false);
-            return;
-          }
-
-          setResultUrl(URL.createObjectURL(blob));
-          setProcessing(false);
-        },
-        mimeType,
-        format === 'png' ? undefined : quality / 100
-      );
-    };
-
-    image.onerror = () => {
-      setError('Could not read the selected image.');
+    } catch (err) {
+      console.error(err);
+      alert("फॉर्मेट बदलने में समस्या आई।");
+    } finally {
       setProcessing(false);
-    };
-
-    image.src = URL.createObjectURL(file);
+    }
   };
 
-  const reset = () => {
-    setFile(null);
-    setPreview('');
-    setResultUrl('');
-    setError('');
-    setFormat('jpeg');
-    setQuality(90);
+  const getExtension = () => {
+    if (targetFormat === "image/jpeg") return "jpg";
+    if (targetFormat === "image/png") return "png";
+    return "webp";
   };
-
-  const extension = format === 'jpeg' ? 'jpg' : format;
 
   return (
-    <main className="mx-auto max-w-5xl px-4 py-10">
-      <section className="mb-8 text-center">
-        <p className="mb-2 text-sm font-semibold uppercase tracking-wide text-blue-600">
-          StudySetu Tool
-        </p>
-
-        <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
+    <main className="min-h-screen bg-slate-50 py-10 px-4 text-slate-800">
+      <div className="max-w-2xl mx-auto bg-white p-6 sm:p-8 rounded-2xl shadow-sm border border-slate-200">
+        <h1 className="text-2xl sm:text-3xl font-bold text-blue-700 text-center">
           Image Format Converter
         </h1>
-
-        <p className="mx-auto mt-3 max-w-2xl text-gray-600">
-          Convert your image between JPG, PNG and WebP directly in your
-          browser.
+        <p className="text-sm text-slate-500 text-center mt-1">
+          JPG, PNG और WebP फॉर्मेट में 1-क्लिक में तुरंत बदलें
         </p>
-      </section>
 
-      <section className="rounded-2xl border bg-white p-5 shadow-sm sm:p-8">
-        <div className="rounded-xl border-2 border-dashed border-gray-300 p-8 text-center">
-          <label className="cursor-pointer">
-            <span className="block text-lg font-semibold">
-              Upload an image
-            </span>
-
-            <span className="mt-2 block text-sm text-gray-500">
-              JPG, JPEG, PNG or WebP • Maximum 10 MB
-            </span>
-
-            <input
-              type="file"
-              accept="image/jpeg,image/png,image/webp"
-              onChange={handleFile}
-              className="mt-5 block w-full cursor-pointer text-sm"
-            />
-          </label>
+        <div className="mt-6 border-2 border-dashed border-blue-200 bg-blue-50/40 rounded-xl p-6 text-center">
+          <input
+            type="file"
+            accept="image/*"
+            ref={fileInputRef}
+            onChange={handleFileChange}
+            className="hidden"
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="bg-blue-600 text-white px-5 py-2.5 rounded-lg font-medium hover:bg-blue-700 transition"
+          >
+            📁 फोटो चुनें
+          </button>
         </div>
 
-        {error && (
-          <div className="mt-5 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-            {error}
-          </div>
-        )}
-
-        {file && (
-          <div className="mt-6 grid gap-6 md:grid-cols-2">
+        {imageSrc && (
+          <div className="mt-6 space-y-5">
             <div>
-              <h2 className="mb-3 font-semibold">Original Image</h2>
-
-              <div className="overflow-hidden rounded-xl border bg-gray-50 p-3">
-                {preview && (
-                  <img
-                    src={preview}
-                    alt="Original preview"
-                    className="mx-auto max-h-72 max-w-full object-contain"
-                  />
-                )}
-              </div>
-
-              <p className="mt-3 text-sm text-gray-600">
-                <strong>File:</strong> {file.name}
-              </p>
-
-              <p className="text-sm text-gray-600">
-                <strong>Size:</strong> {(file.size / 1024).toFixed(1)} KB
-              </p>
-            </div>
-
-            <div>
-              <h2 className="mb-3 font-semibold">Conversion Settings</h2>
-
-              <label className="block text-sm font-medium">
-                Output format
+              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                किस फॉर्मेट में बदलना है?
               </label>
-
               <select
-                value={format}
-                onChange={(e) =>
-                  setFormat(e.target.value as OutputFormat)
-                }
-                className="mt-2 w-full rounded-lg border px-3 py-2"
+                value={targetFormat}
+                onChange={(e) => setTargetFormat(e.target.value as Format)}
+                className="w-full border border-slate-300 p-2.5 rounded-lg text-sm bg-white"
               >
-                <option value="jpeg">JPG / JPEG</option>
-                <option value="png">PNG</option>
-                <option value="webp">WebP</option>
+                <option value="image/jpeg">JPG / JPEG (फ़ॉर्म्स के लिए सर्वश्रेष्ठ)</option>
+                <option value="image/png">PNG (ट्रांसपेरेंट और लॉसलेस)</option>
+                <option value="image/webp">WebP (वेबसाइट्स के लिए सबसे हल्का)</option>
               </select>
-
-              {format !== 'png' && (
-                <div className="mt-5">
-                  <div className="flex items-center justify-between">
-                    <label className="text-sm font-medium">
-                      Quality
-                    </label>
-                    <span className="text-sm text-gray-600">
-                      {quality}%
-                    </span>
-                  </div>
-
-                  <input
-                    type="range"
-                    min="10"
-                    max="100"
-                    value={quality}
-                    onChange={(e) => setQuality(Number(e.target.value))}
-                    className="mt-3 w-full"
-                  />
-                </div>
-              )}
-
-              <button
-                onClick={convertImage}
-                disabled={processing}
-                className="mt-6 w-full rounded-lg bg-blue-600 px-5 py-3 font-semibold text-white disabled:opacity-60"
-              >
-                {processing ? 'Converting...' : 'Convert Image'}
-              </button>
-
-              <button
-                onClick={reset}
-                className="mt-3 w-full rounded-lg border px-5 py-3 font-semibold"
-              >
-                Reset
-              </button>
             </div>
+
+            {targetFormat !== "image/png" && (
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">
+                  क्वालिटी: {Math.round(quality * 100)}%
+                </label>
+                <input
+                  type="range"
+                  min="0.4"
+                  max="1.0"
+                  step="0.05"
+                  value={quality}
+                  onChange={(e) => setQuality(Number(e.target.value))}
+                  className="w-full"
+                />
+              </div>
+            )}
+
+            <button
+              onClick={convertFormat}
+              disabled={processing}
+              className="w-full bg-blue-600 text-white font-semibold py-3 rounded-xl hover:bg-blue-700 transition disabled:opacity-50"
+            >
+              {processing ? "कन्वर्ट हो रहा है..." : `${getExtension().toUpperCase()} में बदलें`}
+            </button>
           </div>
         )}
 
-        {resultUrl && (
-          <div className="mt-8 rounded-xl border bg-gray-50 p-5 text-center">
-            <h2 className="text-xl font-semibold">Conversion Complete</h2>
-
-            <img
-              src={resultUrl}
-              alt="Converted preview"
-              className="mx-auto mt-5 max-h-80 max-w-full rounded-lg object-contain"
-            />
-
+        {resultKB && downloadUrl && (
+          <div className="mt-6 p-4 rounded-xl bg-green-50 border border-green-200 text-center">
+            <p className="text-sm font-bold text-green-800">कन्वर्ज़न पूरा हुआ!</p>
+            <p className="text-xs text-green-700 mt-1">
+              फ़ाइल टाइप: <strong>.{getExtension()}</strong> | साइज: <strong>{resultKB} KB</strong>
+            </p>
             <a
-              href={resultUrl}
-              download={`studysetu-converted.${extension}`}
-              className="mt-5 inline-block rounded-lg bg-green-600 px-6 py-3 font-semibold text-white"
+              href={downloadUrl}
+              download={`${fileName}.${getExtension()}`}
+              className="inline-block mt-3 bg-green-600 text-white px-6 py-2.5 rounded-lg text-sm font-bold hover:bg-green-700 transition"
             >
-              Download {extension.toUpperCase()}
+              📥 डाउनलोड फ़ाइल
             </a>
           </div>
         )}
-      </section>
-
-      <section className="mt-8 rounded-2xl border bg-gray-50 p-6">
-        <h2 className="text-xl font-bold">Why convert image formats?</h2>
-
-        <p className="mt-3 text-gray-600">
-          Different websites and online application forms may require
-          different image formats. JPG is commonly used for photographs,
-          PNG is useful when lossless quality is required, and WebP can
-          provide smaller files for web use.
-        </p>
-
-        <p className="mt-3 text-sm text-gray-500">
-          Your image is processed locally in your browser and is not
-          uploaded to a StudySetu server.
-        </p>
-      </section>
+      </div>
     </main>
   );
 }
