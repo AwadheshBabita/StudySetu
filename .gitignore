@@ -39,3 +39,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+*.backup
+*.before-*
+*.safe-backup
+*.upsc-backup-*
+src/data/*.backup-*
+studysetu.log

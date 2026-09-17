@@ -85,10 +85,10 @@ export default function Home() {
             <Link href="/" className="hover:text-blue-600">
               Home
             </Link>
-            <a href="#study" className="hover:text-blue-600">
+            <a href="/study" className="hover:text-blue-600">
               Study
             </a>
-            <a href="#practice" className="hover:text-blue-600">
+            <a href="/study" className="hover:text-blue-600">
               Practice
             </a>
             <a href="#tools" className="hover:text-blue-600">
@@ -135,7 +135,7 @@ export default function Home() {
               </a>
 
               <a
-                href="#study"
+                href="/study"
                 className="rounded-xl border border-slate-300 bg-white px-6 py-3.5 font-bold text-slate-800 hover:bg-slate-50"
               >
                 Explore Study
@@ -164,7 +164,7 @@ export default function Home() {
       <section className="mx-auto max-w-7xl px-4 py-14 sm:px-6 lg:px-8">
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
           <a
-            href="#study"
+            href="/study"
             className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition hover:-translate-y-1 hover:shadow-md"
           >
             <div className="text-3xl">📚</div>
@@ -175,7 +175,7 @@ export default function Home() {
           </a>
 
           <a
-            href="#practice"
+            href="/study"
             className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition hover:-translate-y-1 hover:shadow-md"
           >
             <div className="text-3xl">📝</div>
@@ -369,10 +369,10 @@ export default function Home() {
           </div>
 
           <div className="flex flex-wrap gap-5 text-sm font-semibold text-slate-600">
-            <a href="#study" className="hover:text-blue-600">
+            <a href="/study" className="hover:text-blue-600">
               Study
             </a>
-            <a href="#practice" className="hover:text-blue-600">
+            <a href="/study" className="hover:text-blue-600">
               Practice
             </a>
             <a href="#tools" className="hover:text-blue-600">
