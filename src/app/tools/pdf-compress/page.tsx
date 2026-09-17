@@ -1,77 +1,88 @@
 "use client";
 
-import { useState } from "react";
+import { ChangeEvent, useState } from "react";
 import { PDFDocument } from "pdf-lib";
-import * as pdfjsLib from "pdfjs-dist";
 
-type CompressionLevel = "low" | "medium" | "high";
+type Level = "low" | "medium" | "high";
 
-const SETTINGS = {
-  low: { scale: 1.5, quality: 0.82 },
-  medium: { scale: 1.2, quality: 0.65 },
-  high: { scale: 0.9, quality: 0.45 },
-} as const;
+const levels: Record<Level, { scale: number; quality: number }> = {
+  low: { scale: 1.25, quality: 0.75 },
+  medium: { scale: 1.0, quality: 0.60 },
+  high: { scale: 0.85, quality: 0.40 },
+};
 
 export default function PdfCompressPage() {
-  const [selected, setSelected] = useState<File | null>(null);
-  const [level, setLevel] = useState<CompressionLevel>("medium");
+  const [file, setFile] = useState<File | null>(null);
+  const [level, setLevel] = useState<Level>("medium");
   const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState("");
   const [message, setMessage] = useState("");
+  const [url, setUrl] = useState("");
+  const [outputSize, setOutputSize] = useState<number | null>(null);
 
-  async function handleFile(file: File) {
-    if (file.type !== "application/pdf") {
-      setMessage("ERROR: Please select a PDF file.");
+  const selectFile = (e: ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0] || null;
+    if (url) URL.revokeObjectURL(url);
+    setUrl("");
+    setOutputSize(null);
+    setMessage("");
+    setProgress("");
+    setFile(f);
+  };
+
+  const compress = async () => {
+    if (!file) {
+      setMessage("कृपया पहले एक PDF चुनें।");
       return;
     }
-    setSelected(file);
-    setMessage("");
-  }
-
-  async function compressPdf() {
-    if (!selected || busy) return;
 
     setBusy(true);
-    setMessage("Compressing PDF...");
+    setMessage("");
+    setProgress("PDF लोड हो रही है...");
 
     try {
-      const data = new Uint8Array(await selected.arrayBuffer());
+      const pdfjs = (await import("pdfjs-dist/legacy/build/pdf.mjs")) as any;
+      const inputBytes = new Uint8Array(await file.arrayBuffer());
+      const loadingTask = pdfjs.getDocument({
+        data: inputBytes,
+        disableWorker: true,
+      });
 
-      const pdfjs = pdfjsLib as typeof pdfjsLib;
-      pdfjs.GlobalWorkerOptions.workerSrc =
-        `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
-
-      const source = await pdfjs.getDocument({ data }).promise;
+      const source = await loadingTask.promise;
       const output = await PDFDocument.create();
-      const settings = SETTINGS[level];
+      const config = levels[level];
+      const totalPages = source.numPages;
 
-      for (let pageNo = 1; pageNo <= source.numPages; pageNo++) {
-        const page = await source.getPage(pageNo);
-        const viewport = page.getViewport({ scale: settings.scale });
+      for (let i = 1; i <= totalPages; i++) {
+        setProgress(`पेज ${i} / ${totalPages} कंप्रेस हो रहा है...`);
+        const page = await source.getPage(i);
+        const viewport = page.getViewport({ scale: config.scale });
 
         const canvas = document.createElement("canvas");
         canvas.width = Math.max(1, Math.ceil(viewport.width));
         canvas.height = Math.max(1, Math.ceil(viewport.height));
+        const context = canvas.getContext("2d");
 
-        const context = canvas.getContext("2d", { alpha: false });
-        if (!context) throw new Error("Canvas is not available.");
-
-        context.fillStyle = "#ffffff";
-        context.fillRect(0, 0, canvas.width, canvas.height);
+        if (!context) throw new Error("Canvas unavailable.");
 
         await page.render({
-          canvas: canvas,
           canvasContext: context,
           viewport,
         }).promise;
 
-        const blob = await new Promise<Blob | null>((resolve) =>
-          canvas.toBlob(resolve, "image/jpeg", settings.quality)
-        );
+        const jpgBlob = await new Promise<Blob>((resolve, reject) => {
+          canvas.toBlob(
+            (b) => (b ? resolve(b) : reject(new Error("JPEG fail"))),
+            "image/jpeg",
+            config.quality
+          );
+        });
 
-        if (!blob) throw new Error(`JPEG conversion failed on page ${pageNo}.`);
+        canvas.width = 0;
+        canvas.height = 0;
 
-        const imageBytes = new Uint8Array(await blob.arrayBuffer());
-        const image = await output.embedJpg(imageBytes);
+        const jpgBytes = new Uint8Array(await jpgBlob.arrayBuffer());
+        const image = await output.embedJpg(jpgBytes);
 
         const outPage = output.addPage([viewport.width, viewport.height]);
         outPage.drawImage(image, {
@@ -82,90 +93,105 @@ export default function PdfCompressPage() {
         });
       }
 
-      const result = await output.save();
-      const resultBuffer = new ArrayBuffer(result.byteLength);
-      new Uint8Array(resultBuffer).set(result);
-      const blob = new Blob([resultBuffer], { type: "application/pdf" });
-      const url = URL.createObjectURL(blob);
+      setProgress("अंतिम PDF तैयार हो रही है...");
+      const bytes = await output.save({
+        useObjectStreams: true,
+        addDefaultPage: false,
+      });
 
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `compressed-${selected.name}`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      const buffer = new ArrayBuffer(bytes.byteLength);
+      new Uint8Array(buffer).set(bytes);
+      const blob = new Blob([buffer], { type: "application/pdf" });
 
-      const oldSize = selected.size;
-      const newSize = blob.size;
-      const percent =
-        oldSize > 0 ? Math.max(0, Math.round((1 - newSize / oldSize) * 100)) : 0;
+      if (url) URL.revokeObjectURL(url);
+      const newUrl = URL.createObjectURL(blob);
+      setUrl(newUrl);
+      setOutputSize(blob.size);
 
+      const reduction = ((file.size - blob.size) / file.size) * 100;
       setMessage(
-        `SUCCESS: ${source.numPages} page(s) processed | ${Math.round(
-          oldSize / 1024
-        )} KB → ${Math.round(newSize / 1024)} KB | ${percent}% smaller`
+        blob.size < file.size
+          ? `सफल — साइज ${reduction.toFixed(1)}% कम हो गया।`
+          : "साइज और कम नहीं हो सका। कृपया 'High' विकल्प चुनें।"
       );
+      setProgress("");
     } catch (error) {
       console.error(error);
       setMessage(
-        `ERROR: ${error instanceof Error ? error.message : "PDF compression failed."}`
+        error instanceof Error ? error.message : "कंप्रेशन में त्रुटि आई।"
       );
+      setProgress("");
     } finally {
       setBusy(false);
     }
-  }
+  };
 
   return (
     <main className="mx-auto max-w-3xl px-4 py-10">
-      <div className="rounded-2xl border bg-white p-6 shadow-sm">
-        <h1 className="text-2xl font-bold">PDF Compress</h1>
+      <section className="rounded-2xl border p-6 shadow-sm bg-white">
+        <h1 className="text-3xl font-bold">PDF Compressor</h1>
         <p className="mt-2 text-sm text-gray-600">
-          Reduce PDF size directly in your browser.
+          फ़ाइल आपके ब्राउज़र में प्रोसेस होती है, सर्वर पर अपलोड नहीं होती।
         </p>
 
-        <label className="mt-6 block cursor-pointer rounded-xl border-2 border-dashed p-8 text-center">
-          <span className="font-medium">
-            {selected ? selected.name : "Choose PDF file"}
-          </span>
-          <input
-            type="file"
-            accept="application/pdf,.pdf"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) void handleFile(file);
-            }}
-          />
-        </label>
+        <input
+          className="mt-6 block w-full rounded-lg border p-3"
+          type="file"
+          accept=".pdf,application/pdf"
+          onChange={selectFile}
+        />
+
+        {file && (
+          <p className="mt-3 text-sm text-gray-700">
+            चयनित: <strong>{file.name}</strong> — {(file.size / 1024 / 1024).toFixed(2)} MB
+          </p>
+        )}
 
         <div className="mt-5">
-          <label className="text-sm font-medium">Compression level</label>
+          <label className="block text-sm font-medium mb-1">कंप्रेशन स्तर चुनें:</label>
           <select
+            className="w-full rounded-lg border p-3"
             value={level}
-            onChange={(e) => setLevel(e.target.value as CompressionLevel)}
-            className="mt-2 w-full rounded-lg border px-3 py-2"
-            disabled={busy}
+            onChange={(e) => setLevel(e.target.value as Level)}
           >
-            <option value="low">Low — better quality</option>
-            <option value="medium">Medium — balanced</option>
-            <option value="high">High — smaller size</option>
+            <option value="low">Low — बेहतर क्वालिटी</option>
+            <option value="medium">Medium — संतुलित</option>
+            <option value="high">High — छोटा साइज</option>
           </select>
         </div>
 
         <button
-          type="button"
-          onClick={() => void compressPdf()}
-          disabled={!selected || busy}
-          className="mt-6 w-full rounded-lg px-4 py-3 font-semibold disabled:opacity-50"
+          className="mt-5 w-full rounded-lg bg-blue-600 text-white px-5 py-3 font-semibold disabled:opacity-50 hover:bg-blue-700 transition"
+          onClick={compress}
+          disabled={!file || busy}
         >
-          {busy ? "Compressing..." : "Compress PDF"}
+          {busy ? (progress || "कंप्रेस हो रहा है...") : "Compress PDF"}
         </button>
 
-        {message && (
-          <p className="mt-4 rounded-lg border p-3 text-sm">{message}</p>
+        {progress && (
+          <div className="mt-4 text-sm text-blue-600 font-medium">{progress}</div>
         )}
-      </div>
+
+        {message && (
+          <div className="mt-4 rounded-lg border p-4 text-sm bg-gray-50">{message}</div>
+        )}
+
+        {outputSize !== null && (
+          <p className="mt-3 text-sm font-semibold text-green-700">
+            नया साइज: {(outputSize / 1024 / 1024).toFixed(2)} MB
+          </p>
+        )}
+
+        {url && (
+          <a
+            className="mt-4 block rounded-lg bg-green-600 text-white px-5 py-3 text-center font-semibold hover:bg-green-700 transition"
+            href={url}
+            download={`${file?.name.replace(/\.pdf$/i, "")}-compressed.pdf`}
+          >
+            डाउनलोड कंप्रेस्ड PDF
+          </a>
+        )}
+      </section>
     </main>
   );
 }
