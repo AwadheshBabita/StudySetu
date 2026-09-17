@@ -84,4 +84,13 @@ export const exams: Exam[] = [
     description: 'State Bank of India Junior Associate examination',
     active: true,
   },
+
+  {
+    id: 'upsc-cse',
+    categoryId: 'state',
+    name: 'UPSC Civil Services Examination',
+    description: 'UPSC Civil Services Examination study and practice module',
+    active: true
+  },
+
 ];

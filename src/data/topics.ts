@@ -119,4 +119,58 @@ export const topics: Topic[] = [
   { id: 'sbiclerk-reasoning-puzzle', subjectId: 'sbi-clerk-reasoning', name: 'Puzzles', active: true },
   { id: 'sbiclerk-english-grammar', subjectId: 'sbi-clerk-english', name: 'Grammar', active: true },
   { id: 'sbiclerk-awareness-banking', subjectId: 'sbi-clerk-awareness', name: 'Banking Awareness', active: true },
+
+  // UPSC CSE - General Studies I
+  { id: 'upsc-gs1-ancient-history', subjectId: 'upsc-gs1', name: 'Ancient Indian History', active: true },
+  { id: 'upsc-gs1-medieval-history', subjectId: 'upsc-gs1', name: 'Medieval Indian History', active: true },
+  { id: 'upsc-gs1-modern-history', subjectId: 'upsc-gs1', name: 'Modern Indian History', active: true },
+  { id: 'upsc-gs1-art-culture', subjectId: 'upsc-gs1', name: 'Art & Culture', active: true },
+  { id: 'upsc-gs1-world-history', subjectId: 'upsc-gs1', name: 'World History', active: true },
+  { id: 'upsc-gs1-indian-geography', subjectId: 'upsc-gs1', name: 'Indian Geography', active: true },
+  { id: 'upsc-gs1-world-geography', subjectId: 'upsc-gs1', name: 'World Geography', active: true },
+  { id: 'upsc-gs1-society', subjectId: 'upsc-gs1', name: 'Indian Society', active: true },
+
+  // UPSC CSE - CSAT
+  { id: 'upsc-csat-comprehension', subjectId: 'upsc-csat', name: 'Reading Comprehension', active: true },
+  { id: 'upsc-csat-basic-numeracy', subjectId: 'upsc-csat', name: 'Basic Numeracy', active: true },
+  { id: 'upsc-csat-data-interpretation', subjectId: 'upsc-csat', name: 'Data Interpretation', active: true },
+  { id: 'upsc-csat-logical-reasoning', subjectId: 'upsc-csat', name: 'Logical Reasoning', active: true },
+  { id: 'upsc-csat-analytical-ability', subjectId: 'upsc-csat', name: 'Analytical Ability', active: true },
+
+  // UPSC CSE - Current Affairs
+  { id: 'upsc-ca-national', subjectId: 'upsc-current-affairs', name: 'National Current Affairs', active: true },
+  { id: 'upsc-ca-international', subjectId: 'upsc-current-affairs', name: 'International Current Affairs', active: true },
+  { id: 'upsc-ca-government', subjectId: 'upsc-current-affairs', name: 'Government Schemes & Policies', active: true },
+  { id: 'upsc-ca-science', subjectId: 'upsc-current-affairs', name: 'Science & Technology Current Affairs', active: true },
+  { id: 'upsc-ca-environment', subjectId: 'upsc-current-affairs', name: 'Environment Current Affairs', active: true },
+
+  // UPSC CSE - Polity
+  { id: 'upsc-polity-constitution', subjectId: 'upsc-polity', name: 'Indian Constitution', active: true },
+  { id: 'upsc-polity-fundamental-rights', subjectId: 'upsc-polity', name: 'Fundamental Rights & Duties', active: true },
+  { id: 'upsc-polity-parliament', subjectId: 'upsc-polity', name: 'Parliament', active: true },
+  { id: 'upsc-polity-judiciary', subjectId: 'upsc-polity', name: 'Judiciary', active: true },
+  { id: 'upsc-polity-executive', subjectId: 'upsc-polity', name: 'Union & State Executive', active: true },
+  { id: 'upsc-polity-governance', subjectId: 'upsc-polity', name: 'Governance', active: true },
+
+  // UPSC CSE - Economy
+  { id: 'upsc-economy-basics', subjectId: 'upsc-economy', name: 'Basic Economic Concepts', active: true },
+  { id: 'upsc-economy-banking', subjectId: 'upsc-economy', name: 'Banking & Monetary System', active: true },
+  { id: 'upsc-economy-budget', subjectId: 'upsc-economy', name: 'Budget & Public Finance', active: true },
+  { id: 'upsc-economy-inflation', subjectId: 'upsc-economy', name: 'Inflation', active: true },
+  { id: 'upsc-economy-development', subjectId: 'upsc-economy', name: 'Economic Development', active: true },
+
+  // UPSC CSE - Environment
+  { id: 'upsc-environment-ecology', subjectId: 'upsc-environment', name: 'Ecology Basics', active: true },
+  { id: 'upsc-environment-biodiversity', subjectId: 'upsc-environment', name: 'Biodiversity', active: true },
+  { id: 'upsc-environment-climate', subjectId: 'upsc-environment', name: 'Climate Change', active: true },
+  { id: 'upsc-environment-pollution', subjectId: 'upsc-environment', name: 'Environmental Pollution', active: true },
+  { id: 'upsc-environment-conservation', subjectId: 'upsc-environment', name: 'Conservation', active: true },
+
+  // UPSC CSE - Science & Technology
+  { id: 'upsc-science-physics', subjectId: 'upsc-science', name: 'General Physics', active: true },
+  { id: 'upsc-science-chemistry', subjectId: 'upsc-science', name: 'General Chemistry', active: true },
+  { id: 'upsc-science-biology', subjectId: 'upsc-science', name: 'General Biology', active: true },
+  { id: 'upsc-science-space', subjectId: 'upsc-science', name: 'Space Technology', active: true },
+  { id: 'upsc-science-biotechnology', subjectId: 'upsc-science', name: 'Biotechnology', active: true },
+
 ];

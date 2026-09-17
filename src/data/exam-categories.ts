@@ -36,4 +36,12 @@ export const examCategories: ExamCategory[] = [
     description: 'Police and related recruitment examinations',
     active: true,
   },
+
+  {
+    id: 'upsc',
+    name: 'UPSC',
+    description: 'Union Public Service Commission examinations',
+    active: true
+  },
+
 ];

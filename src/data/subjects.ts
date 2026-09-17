@@ -59,4 +59,55 @@ export const subjects: Subject[] = [
   { id: 'sbi-clerk-reasoning', examId: 'sbi-clerk', name: 'Reasoning Ability', description: 'Logical reasoning', active: true },
   { id: 'sbi-clerk-english', examId: 'sbi-clerk', name: 'English Language', description: 'English language skills', active: true },
   { id: 'sbi-clerk-awareness', examId: 'sbi-clerk', name: 'General / Banking Awareness', description: 'General and banking awareness', active: true },
+
+  {
+    id: 'upsc-gs1',
+    examId: 'upsc-cse',
+    name: 'General Studies Paper I',
+    description: 'History, Geography, Society, Culture and related areas',
+    active: true
+  },
+  {
+    id: 'upsc-csat',
+    examId: 'upsc-cse',
+    name: 'CSAT / General Studies Paper II',
+    description: 'Comprehension, reasoning, numeracy and analytical ability',
+    active: true
+  },
+  {
+    id: 'upsc-current-affairs',
+    examId: 'upsc-cse',
+    name: 'Current Affairs',
+    description: 'Current events and important contemporary developments',
+    active: true
+  },
+  {
+    id: 'upsc-polity',
+    examId: 'upsc-cse',
+    name: 'Indian Polity & Governance',
+    description: 'Constitution, polity, governance and institutional topics',
+    active: true
+  },
+  {
+    id: 'upsc-economy',
+    examId: 'upsc-cse',
+    name: 'Indian Economy',
+    description: 'Economic concepts, development and public finance',
+    active: true
+  },
+  {
+    id: 'upsc-environment',
+    examId: 'upsc-cse',
+    name: 'Environment & Ecology',
+    description: 'Ecology, biodiversity, environment and climate-related topics',
+    active: true
+  },
+  {
+    id: 'upsc-science',
+    examId: 'upsc-cse',
+    name: 'Science & Technology',
+    description: 'General science and technology-related topics',
+    active: true
+  },
+
 ];
