@@ -1,225 +1,233 @@
-'use client';
+"use client";
 
-import { ChangeEvent, useEffect, useState } from 'react';
-import { PDFDocument } from 'pdf-lib';
+import { useState, ChangeEvent } from "react";
+import jsPDF from "jspdf";
 
-type ImageItem = {
+interface ImageItem {
   id: string;
-  file: File;
-  preview: string;
-};
+  name: string;
+  src: string;
+  width: number;
+  height: number;
+}
 
 export default function ImageToPdfPage() {
   const [images, setImages] = useState<ImageItem[]>([]);
-  const [error, setError] = useState('');
-  const [processing, setProcessing] = useState(false);
-  const [pdfUrl, setPdfUrl] = useState('');
+  const [orientation, setOrientation] = useState<"portrait" | "landscape">("portrait");
+  const [margin, setMargin] = useState<number>(10);
+  const [processing, setProcessing] = useState<boolean>(false);
+  const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
 
-  useEffect(() => {
-    return () => {
-      images.forEach((item) => URL.revokeObjectURL(item.preview));
-      if (pdfUrl) URL.revokeObjectURL(pdfUrl);
-    };
-  }, [images, pdfUrl]);
+  const handleFiles = (e: ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
 
-  const handleFiles = (event: ChangeEvent<HTMLInputElement>) => {
-    setError('');
-    setPdfUrl('');
+    if (downloadUrl) URL.revokeObjectURL(downloadUrl);
+    setDownloadUrl(null);
 
-    const files = Array.from(event.target.files || []);
-    const valid = files.filter(
-      (file) =>
-        file.type === 'image/jpeg' ||
-        file.type === 'image/png' ||
-        file.type === 'image/webp'
-    );
+    const newItems: Promise<ImageItem>[] = Array.from(files).map((file) => {
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          const src = event.target?.result as string;
+          const img = new Image();
+          img.onload = () => {
+            resolve({
+              id: Math.random().toString(36).substring(2, 9),
+              name: file.name,
+              src,
+              width: img.width,
+              height: img.height,
+            });
+          };
+          img.src = src;
+        };
+        reader.readAsDataURL(file);
+      });
+    });
 
-    if (!valid.length) {
-      setError('Please select JPG, PNG or WebP images.');
-      return;
-    }
-
-    const newImages = valid.map((file) => ({
-      id: `${file.name}-${file.lastModified}-${Math.random()}`,
-      file,
-      preview: URL.createObjectURL(file),
-    }));
-
-    setImages((current) => [...current, ...newImages]);
-    event.target.value = '';
+    Promise.all(newItems).then((loaded) => {
+      setImages((prev) => [...prev, ...loaded]);
+    });
   };
 
   const removeImage = (id: string) => {
-    setImages((current) => {
-      const item = current.find((image) => image.id === id);
-      if (item) URL.revokeObjectURL(item.preview);
-      return current.filter((image) => image.id !== id);
-    });
-    setPdfUrl('');
+    setImages((prev) => prev.filter((img) => img.id !== id));
   };
 
-  const clearAll = () => {
-    images.forEach((item) => URL.revokeObjectURL(item.preview));
-    if (pdfUrl) URL.revokeObjectURL(pdfUrl);
-    setImages([]);
-    setPdfUrl('');
-    setError('');
+  const moveImage = (index: number, direction: "up" | "down") => {
+    const targetIndex = direction === "up" ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= images.length) return;
+    const updated = [...images];
+    const temp = updated[index];
+    updated[index] = updated[targetIndex];
+    updated[targetIndex] = temp;
+    setImages(updated);
   };
 
-  const createPdf = async () => {
-    if (!images.length) {
-      setError('Please add at least one image.');
-      return;
-    }
-
+  const generatePdf = async () => {
+    if (images.length === 0) return;
     setProcessing(true);
-    setError('');
-    setPdfUrl('');
 
     try {
-      const pdf = await PDFDocument.create();
-
-      for (const item of images) {
-        const bytes = new Uint8Array(await item.file.arrayBuffer());
-        let embedded;
-
-        if (item.file.type === 'image/png') {
-          embedded = await pdf.embedPng(bytes);
-        } else {
-          embedded = await pdf.embedJpg(bytes);
-        }
-
-        const width = embedded.width;
-        const height = embedded.height;
-        const page = pdf.addPage([width, height]);
-
-        page.drawImage(embedded, {
-          x: 0,
-          y: 0,
-          width,
-          height,
-        });
-      }
-
-      const pdfBytes = await pdf.save();
-      const blob = new Blob([pdfBytes as BlobPart], {
-        type: 'application/pdf',
+      const doc = new jsPDF({
+        orientation: orientation,
+        unit: "mm",
+        format: "a4",
       });
 
-      setPdfUrl(URL.createObjectURL(blob));
-    } catch {
-      setError('Could not create PDF. Please try another image.');
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const printWidth = pageWidth - margin * 2;
+      const printHeight = pageHeight - margin * 2;
+
+      for (let i = 0; i < images.length; i++) {
+        if (i > 0) doc.addPage("a4", orientation);
+
+        const img = images[i];
+        const ratio = Math.min(printWidth / img.width, printHeight / img.height);
+        const w = img.width * ratio;
+        const h = img.height * ratio;
+        const x = margin + (printWidth - w) / 2;
+        const y = margin + (printHeight - h) / 2;
+
+        doc.addImage(img.src, "JPEG", x, y, w, h, undefined, "FAST");
+      }
+
+      const pdfBlob = doc.output("blob");
+      if (downloadUrl) URL.revokeObjectURL(downloadUrl);
+      const url = URL.createObjectURL(pdfBlob);
+      setDownloadUrl(url);
+    } catch (err) {
+      console.error(err);
+      alert("PDF बनाने में समस्या आई।");
     } finally {
       setProcessing(false);
     }
   };
 
   return (
-    <main className="min-h-screen bg-slate-950 px-4 py-10 text-white">
-      <section className="mx-auto max-w-4xl">
-        <div className="mb-8 text-center">
-          <p className="mb-2 text-sm font-semibold text-blue-400">
-            STUDYSETU • PDF TOOL
-          </p>
-          <h1 className="text-3xl font-bold sm:text-4xl">
-            Image to PDF
-          </h1>
-          <p className="mt-3 text-slate-400">
-            Convert multiple JPG, PNG or WebP images into one PDF.
-          </p>
-        </div>
+    <main className="min-h-screen bg-slate-50 py-10 px-4 text-slate-800">
+      <div className="max-w-3xl mx-auto bg-white p-6 sm:p-8 rounded-2xl shadow-sm border border-slate-200">
+        <h1 className="text-2xl sm:text-3xl font-bold text-blue-700 text-center">
+          Image to PDF Converter
+        </h1>
+        <p className="text-sm text-slate-500 text-center mt-1">
+          तस्वीरों को क्रमबद्ध करके उच्च-गुणवत्ता A4 PDF में बदलें
+        </p>
 
-        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-xl">
-          <label className="flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-700 px-5 py-12 text-center hover:border-blue-500">
-            <span className="text-lg font-semibold">
-              Select Images
-            </span>
-            <span className="mt-2 text-sm text-slate-400">
-              JPG, PNG or WebP • Multiple images supported
-            </span>
-            <input
-              type="file"
-              accept="image/jpeg,image/png,image/webp"
-              multiple
-              onChange={handleFiles}
-              className="hidden"
-            />
+        {/* Upload Box */}
+        <div className="mt-6 border-2 border-dashed border-blue-200 bg-blue-50/40 rounded-xl p-6 text-center">
+          <input
+            type="file"
+            accept="image/*"
+            multiple
+            onChange={handleFiles}
+            id="multiImgInput"
+            className="hidden"
+          />
+          <label
+            htmlFor="multiImgInput"
+            className="cursor-pointer inline-block bg-blue-600 text-white px-5 py-2.5 rounded-lg font-medium hover:bg-blue-700 transition"
+          >
+            📑 फोटो चुनें (एक या अधिक)
           </label>
-
-          {error && (
-            <div className="mt-4 rounded-lg bg-red-500/10 p-3 text-sm text-red-400">
-              {error}
-            </div>
-          )}
-
-          {images.length > 0 && (
-            <>
-              <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
-                {images.map((item, index) => (
-                  <div
-                    key={item.id}
-                    className="relative overflow-hidden rounded-xl border border-slate-700 bg-slate-800"
-                  >
-                    <img
-                      src={item.preview}
-                      alt={`Image ${index + 1}`}
-                      className="h-32 w-full object-contain"
-                    />
-                    <div className="flex items-center justify-between p-2">
-                      <span className="text-xs text-slate-400">
-                        Page {index + 1}
-                      </span>
-                      <button
-                        onClick={() => removeImage(item.id)}
-                        className="text-xs font-semibold text-red-400"
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-                <button
-                  onClick={createPdf}
-                  disabled={processing}
-                  className="flex-1 rounded-xl bg-blue-600 px-5 py-3 font-semibold hover:bg-blue-500 disabled:opacity-50"
-                >
-                  {processing ? 'Creating PDF...' : 'Create PDF'}
-                </button>
-
-                <button
-                  onClick={clearAll}
-                  className="rounded-xl border border-slate-700 px-5 py-3 font-semibold hover:bg-slate-800"
-                >
-                  Clear All
-                </button>
-              </div>
-            </>
-          )}
-
-          {pdfUrl && (
-            <div className="mt-6 rounded-xl border border-green-500/30 bg-green-500/10 p-5 text-center">
-              <p className="mb-4 font-semibold text-green-400">
-                PDF created successfully.
-              </p>
-              <a
-                href={pdfUrl}
-                download="studysetu-images.pdf"
-                className="inline-block rounded-xl bg-green-600 px-6 py-3 font-semibold hover:bg-green-500"
-              >
-                Download PDF
-              </a>
-            </div>
-          )}
-
-          <p className="mt-6 text-center text-xs text-slate-500">
-            Images are processed locally in your browser. They are not
-            uploaded to a StudySetu server.
-          </p>
+          <p className="text-xs text-slate-500 mt-2">JPG, PNG फाइल्स सपोर्टेड</p>
         </div>
-      </section>
+
+        {images.length > 0 && (
+          <div className="mt-6 space-y-5">
+            {/* Settings */}
+            <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">पेज ओरिएंटेशन</label>
+                <select
+                  value={orientation}
+                  onChange={(e) => setOrientation(e.target.value as any)}
+                  className="w-full border border-slate-300 p-2 rounded-lg text-sm bg-white"
+                >
+                  <option value="portrait">Portrait (सीधा)</option>
+                  <option value="landscape">Landscape (आड़ा)</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">मार्जिन (Border)</label>
+                <select
+                  value={margin}
+                  onChange={(e) => setMargin(Number(e.target.value))}
+                  className="w-full border border-slate-300 p-2 rounded-lg text-sm bg-white"
+                >
+                  <option value="0">बिना मार्जिन (0 mm)</option>
+                  <option value="10">सामान्य मार्जिन (10 mm)</option>
+                  <option value="20">चौड़ा मार्जिन (20 mm)</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Selected Images List */}
+            <div className="space-y-2">
+              <p className="text-xs font-bold text-slate-600 uppercase">चयनित तस्वीरें ({images.length})</p>
+              {images.map((img, index) => (
+                <div
+                  key={img.id}
+                  className="flex items-center justify-between p-3 border border-slate-200 rounded-lg bg-white"
+                >
+                  <div className="flex items-center space-x-3 overflow-hidden">
+                    <span className="text-xs font-bold text-slate-400">#{index + 1}</span>
+                    <img src={img.src} alt="thumb" className="w-10 h-10 object-cover rounded border" />
+                    <span className="text-sm truncate max-w-[150px] sm:max-w-xs">{img.name}</span>
+                  </div>
+                  <div className="flex items-center space-x-1">
+                    <button
+                      onClick={() => moveImage(index, "up")}
+                      disabled={index === 0}
+                      className="p-1 text-slate-500 hover:text-blue-600 disabled:opacity-30"
+                    >
+                      ▲
+                    </button>
+                    <button
+                      onClick={() => moveImage(index, "down")}
+                      disabled={index === images.length - 1}
+                      className="p-1 text-slate-500 hover:text-blue-600 disabled:opacity-30"
+                    >
+                      ▼
+                    </button>
+                    <button
+                      onClick={() => removeImage(img.id)}
+                      className="p-1 text-red-500 hover:text-red-700 ml-2"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Action Button */}
+            <button
+              onClick={generatePdf}
+              disabled={processing}
+              className="w-full bg-blue-600 text-white font-semibold py-3 rounded-xl hover:bg-blue-700 transition disabled:opacity-50"
+            >
+              {processing ? "PDF तैयार हो रही है..." : "PDF बनाएँ और डाउनलोड करें"}
+            </button>
+          </div>
+        )}
+
+        {/* Result Area */}
+        {downloadUrl && (
+          <div className="mt-6 p-4 rounded-xl bg-green-50 border border-green-200 text-center">
+            <p className="text-sm font-bold text-green-800">PDF सफलतापूर्वक तैयार हो गई!</p>
+            <a
+              href={downloadUrl}
+              download="studysetu-document.pdf"
+              className="inline-block mt-3 bg-green-600 text-white px-6 py-2.5 rounded-lg text-sm font-bold hover:bg-green-700 transition"
+            >
+              📥 डाउनलोड PDF
+            </a>
+          </div>
+        )}
+      </div>
     </main>
   );
 }
