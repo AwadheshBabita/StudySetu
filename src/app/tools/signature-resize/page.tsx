@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, ChangeEvent } from "react";
+import { useState, useRef, useEffect, ChangeEvent, MouseEvent, TouchEvent } from "react";
 
 export default function SignatureResizePage() {
   const [imageSrc, setImageSrc] = useState<string | null>(null);
@@ -8,11 +8,20 @@ export default function SignatureResizePage() {
   const [targetMinKB, setTargetMinKB] = useState<number>(10);
   const [targetMaxKB, setTargetMaxKB] = useState<number>(20);
 
-  // Enhancements & Alignment
-  const [rotation, setRotation] = useState<number>(0); // -180 to +180 deg
+  // Zoom, Pan, and Rotate Controls
+  const [zoom, setZoom] = useState<number>(1); // 1x to 4x
+  const [panX, setPanX] = useState<number>(0);
+  const [panY, setPanY] = useState<number>(0);
+  const [rotation, setRotation] = useState<number>(0); // -180 to +180
+
+  // Enhancements
   const [cleanBgThreshold, setCleanBgThreshold] = useState<number>(180);
   const [inkDarkness, setInkDarkness] = useState<number>(40);
   const [autoClean, setAutoClean] = useState<boolean>(true);
+
+  // Dragging state for canvas pan
+  const [isDragging, setIsDragging] = useState<boolean>(false);
+  const [dragStart, setDragStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
 
   const [processing, setProcessing] = useState<boolean>(false);
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
@@ -30,6 +39,9 @@ export default function SignatureResizePage() {
     setDownloadUrl(null);
     setResultKB(null);
     setRotation(0);
+    setZoom(1.2);
+    setPanX(0);
+    setPanY(0);
     setOrigSizeKB(Number((file.size / 1024).toFixed(1)));
 
     const reader = new FileReader();
@@ -45,7 +57,7 @@ export default function SignatureResizePage() {
     reader.readAsDataURL(file);
   };
 
-  // Live Canvas Preview renderer
+  // Render Signature to Canvas (with Zoom, Pan, Rotate, and Filters)
   const renderSignatureToCanvas = (canvas: HTMLCanvasElement, forExport = false) => {
     const img = imgElementRef.current;
     if (!img) return;
@@ -61,24 +73,26 @@ export default function SignatureResizePage() {
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, targetW, targetH);
 
-    // Save context for rotation
     ctx.save();
-    ctx.translate(targetW / 2, targetH / 2);
+    // Center of canvas
+    ctx.translate(targetW / 2 + panX, targetH / 2 + panY);
     ctx.rotate((rotation * Math.PI) / 180);
 
-    // Scale to fit nicely with margins
-    const scale = Math.min((targetW - 50) / img.naturalWidth, (targetH - 50) / img.naturalHeight);
-    const drawW = img.naturalWidth * scale;
-    const drawH = img.naturalHeight * scale;
+    // Base fitting scale multiplied by user zoom factor
+    const baseScale = Math.min(targetW / img.naturalWidth, targetH / img.naturalHeight);
+    const effectiveScale = baseScale * zoom;
+
+    const drawW = img.naturalWidth * effectiveScale;
+    const drawH = img.naturalHeight * effectiveScale;
 
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = "high";
     ctx.drawImage(img, -drawW / 2, -drawH / 2, drawW, drawH);
     ctx.restore();
 
-    // Alignment Guideline in preview mode only
+    // Alignment Guideline in Preview Mode Only
     if (!forExport) {
-      ctx.strokeStyle = "rgba(59, 130, 246, 0.25)";
+      ctx.strokeStyle = "rgba(59, 130, 246, 0.4)";
       ctx.lineWidth = 1;
       ctx.setLineDash([4, 4]);
       ctx.beginPath();
@@ -88,7 +102,7 @@ export default function SignatureResizePage() {
       ctx.setLineDash([]);
     }
 
-    // Shadow Removal & Paper Whitening
+    // Paper Whitening & Shadow Removal
     if (autoClean) {
       const imgData = ctx.getImageData(0, 0, targetW, targetH);
       const data = imgData.data;
@@ -115,12 +129,28 @@ export default function SignatureResizePage() {
     }
   };
 
-  // Trigger preview update on changes
+  // Touch and Mouse Drag / Pan Handlers
+  const handlePointerDown = (clientX: number, clientY: number) => {
+    setIsDragging(true);
+    setDragStart({ x: clientX - panX, y: clientY - panY });
+  };
+
+  const handlePointerMove = (clientX: number, clientY: number) => {
+    if (!isDragging) return;
+    setPanX(Math.round(clientX - dragStart.x));
+    setPanY(Math.round(clientY - dragStart.y));
+  };
+
+  const handlePointerUp = () => {
+    setIsDragging(false);
+  };
+
+  // Update Live Preview when any control changes
   useEffect(() => {
     if (imageSrc && previewCanvasRef.current && imgElementRef.current) {
       renderSignatureToCanvas(previewCanvasRef.current, false);
     }
-  }, [imageSrc, rotation, cleanBgThreshold, inkDarkness, autoClean]);
+  }, [imageSrc, zoom, panX, panY, rotation, cleanBgThreshold, inkDarkness, autoClean]);
 
   const processSignature = async () => {
     if (!imageSrc || !imgElementRef.current) return;
@@ -130,7 +160,7 @@ export default function SignatureResizePage() {
       const exportCanvas = document.createElement("canvas");
       renderSignatureToCanvas(exportCanvas, true);
 
-      // Binary search compression for exact KB
+      // Binary search compression for target KB
       const targetBytes = targetMaxKB * 1024;
       const minBytes = targetMinKB * 1024;
       let minQ = 0.1;
@@ -172,10 +202,10 @@ export default function SignatureResizePage() {
     <main className="min-h-screen bg-slate-50 py-10 px-4 text-slate-800">
       <div className="max-w-2xl mx-auto bg-white p-6 sm:p-8 rounded-2xl shadow-sm border border-slate-200">
         <h1 className="text-2xl sm:text-3xl font-bold text-blue-700 text-center">
-          Signature Resizer & Straightener
+          Signature Resizer & Crop Zoomer
         </h1>
         <p className="text-sm text-slate-500 text-center mt-1">
-          तिरछे हस्ताक्षर को 0°–180° तक सीधा करें, छाया हटाएँ और 10–20 KB में फ़िक्स करें
+          A4 पेज से सिर्फ सिग्नेचर वाले हिस्से को ज़ूम करें, सीधा करें और 10-20 KB में पाएँ
         </p>
 
         {/* Upload Box */}
@@ -194,7 +224,7 @@ export default function SignatureResizePage() {
           >
             ✍️ हस्ताक्षर फ़ोटो चुनें
           </button>
-          <p className="text-xs text-slate-400 mt-2">सफ़ेद कागज़ पर किए गए साइन की फ़ोटो चुनें</p>
+          <p className="text-xs text-slate-400 mt-2">पूरे A4 कागज़ या कॉपी की फ़ोटो अपलोड करें</p>
         </div>
 
         {imageSrc && (
@@ -205,57 +235,80 @@ export default function SignatureResizePage() {
               </p>
             )}
 
-            {/* Live Visual Canvas Preview */}
+            {/* Live Interactive Canvas with Touch/Mouse Drag */}
             <div className="border border-slate-200 rounded-xl p-3 bg-slate-100 flex flex-col items-center">
-              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2">
-                लाइव प्रीव्यू (समतल गाइडलाइन के साथ)
-              </span>
-              <div className="bg-white p-1 rounded-lg border shadow-sm max-w-full overflow-hidden">
+              <div className="w-full flex items-center justify-between text-[11px] font-bold text-slate-600 uppercase mb-2">
+                <span>👇 उंगली से खींचकर सिग्नेचर को बीच में लाएँ (Drag to Move)</span>
+                <button
+                  type="button"
+                  onClick={() => { setPanX(0); setPanY(0); setZoom(1); setRotation(0); }}
+                  className="text-blue-600 hover:underline"
+                >
+                  रीसेट करें
+                </button>
+              </div>
+
+              <div className="bg-white p-1 rounded-lg border-2 border-blue-400 shadow-md max-w-full overflow-hidden touch-none cursor-move">
                 <canvas
                   ref={previewCanvasRef}
-                  className="max-h-36 max-w-full object-contain"
+                  onMouseDown={(e: MouseEvent<HTMLCanvasElement>) => handlePointerDown(e.clientX, e.clientY)}
+                  onMouseMove={(e: MouseEvent<HTMLCanvasElement>) => handlePointerMove(e.clientX, e.clientY)}
+                  onMouseUp={handlePointerUp}
+                  onTouchStart={(e: TouchEvent<HTMLCanvasElement>) => handlePointerDown(e.touches[0].clientX, e.touches[0].clientY)}
+                  onTouchMove={(e: TouchEvent<HTMLCanvasElement>) => handlePointerMove(e.touches[0].clientX, e.touches[0].clientY)}
+                  onTouchEnd={handlePointerUp}
+                  className="max-h-48 max-w-full object-contain select-none"
                 />
               </div>
             </div>
 
-            {/* Rotation Controls (-180 to +180) */}
-            <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-                  🔄 हस्ताक्षर सीधा करें (Rotate Angle): <span className="text-blue-600 font-black">{rotation}°</span>
-                </label>
-                <div className="flex space-x-1.5">
+            {/* Zoom Slider */}
+            <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+              <div className="flex justify-between items-center text-xs font-bold text-slate-800">
+                <span>🔍 ज़ूम इन / आउट (Zoom Area): <span className="text-blue-600">{zoom.toFixed(1)}x</span></span>
+                <div className="flex space-x-1">
                   <button
                     type="button"
-                    onClick={() => setRotation((r) => Math.max(-180, r - 5))}
-                    className="px-2 py-0.5 text-xs font-bold bg-white border border-slate-300 rounded hover:bg-slate-100"
+                    onClick={() => setZoom((z) => Math.max(0.5, Number((z - 0.2).toFixed(1))))}
+                    className="px-2 py-0.5 bg-white border border-slate-300 rounded font-bold hover:bg-slate-100"
                   >
-                    -5°
+                    -
                   </button>
                   <button
                     type="button"
-                    onClick={() => setRotation(0)}
-                    className="px-2 py-0.5 text-xs font-bold bg-white border border-slate-300 rounded hover:bg-slate-100 text-slate-600"
+                    onClick={() => setZoom((z) => Math.min(6, Number((z + 0.2).toFixed(1))))}
+                    className="px-2 py-0.5 bg-white border border-slate-300 rounded font-bold hover:bg-slate-100"
                   >
-                    0° रीसेट
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setRotation((r) => Math.min(180, r + 5))}
-                    className="px-2 py-0.5 text-xs font-bold bg-white border border-slate-300 rounded hover:bg-slate-100"
-                  >
-                    +5°
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setRotation((r) => (r + 90 > 180 ? -180 + (r + 90 - 180) : r + 90))}
-                    className="px-2 py-0.5 text-xs font-bold bg-blue-50 border border-blue-200 text-blue-700 rounded hover:bg-blue-100"
-                  >
-                    +90°
+                    +
                   </button>
                 </div>
               </div>
+              <input
+                type="range"
+                min="0.5"
+                max="5"
+                step="0.1"
+                value={zoom}
+                onChange={(e) => setZoom(Number(e.target.value))}
+                className="w-full"
+              />
+              <p className="text-[11px] text-slate-400">
+                अगर A4 पेज बड़ा है, तो ज़ूम बढ़ाकर केवल अपने हस्ताक्षर वाले हिस्से को बॉक्स में फ़िट करें।
+              </p>
+            </div>
 
+            {/* Rotation Slider */}
+            <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+              <div className="flex items-center justify-between text-xs font-bold text-slate-800">
+                <span>🔄 तिरछापन सीधा करें (Rotate): <span className="text-blue-600">{rotation}°</span></span>
+                <button
+                  type="button"
+                  onClick={() => setRotation(0)}
+                  className="px-2 py-0.5 text-[11px] bg-white border border-slate-300 rounded font-bold hover:bg-slate-100"
+                >
+                  0° रीसेट
+                </button>
+              </div>
               <input
                 type="range"
                 min="-180"
@@ -264,12 +317,9 @@ export default function SignatureResizePage() {
                 onChange={(e) => setRotation(Number(e.target.value))}
                 className="w-full"
               />
-              <p className="text-[11px] text-slate-500">
-                स्लाइडर को आगे-पीछे करके हस्ताक्षर को ठीक नीली मध्य रेखा के समानांतर सीधा करें।
-              </p>
             </div>
 
-            {/* Shadow Removal & Contrast Controls */}
+            {/* Paper Whitening & Ink Contrast */}
             <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
               <label className="flex items-center space-x-2 cursor-pointer">
                 <input
@@ -300,7 +350,7 @@ export default function SignatureResizePage() {
                   </div>
                   <div>
                     <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-                      स्याही की गहराई (Contrast): {inkDarkness}%
+                      स्याही की गहराई: {inkDarkness}%
                     </label>
                     <input
                       type="range"
@@ -344,9 +394,9 @@ export default function SignatureResizePage() {
             <button
               onClick={processSignature}
               disabled={processing}
-              className="w-full bg-blue-600 text-white font-semibold py-3 rounded-xl hover:bg-blue-700 transition disabled:opacity-50"
+              className="w-full bg-blue-600 text-white font-semibold py-3.5 rounded-xl hover:bg-blue-700 transition shadow-md disabled:opacity-50 text-sm"
             >
-              {processing ? "हस्ताक्षर प्रोसेस हो रहा है..." : "हस्ताक्षर रिसाइज़ व सीधा करें"}
+              {processing ? "हस्ताक्षर प्रोसेस हो रहा है..." : "✂️ हस्ताक्षर क्रॉप, ज़ूम व रिसाइज़ करें"}
             </button>
           </div>
         )}
@@ -354,7 +404,7 @@ export default function SignatureResizePage() {
         {/* Download Box */}
         {resultKB && downloadUrl && (
           <div className="mt-6 p-4 rounded-xl bg-green-50 border border-green-200 text-center space-y-3">
-            <p className="text-sm font-bold text-green-800">हस्ताक्षर पूरी तरह सीधा और साफ़ हो चुका है!</p>
+            <p className="text-sm font-bold text-green-800">हस्ताक्षर सफलतापूर्वक क्रॉप व तैयार हो गया!</p>
             <p className="text-xs text-green-700">
               नया साइज़: <strong>{resultKB} KB</strong> | अनुपात: <strong>560×240 px</strong>
             </p>
@@ -368,7 +418,7 @@ export default function SignatureResizePage() {
               download="studysetu-signature.jpg"
               className="inline-block bg-green-600 text-white px-6 py-2.5 rounded-lg text-sm font-bold hover:bg-green-700 transition shadow-sm"
             >
-              📥 डाउनलोड सीधा हस्ताक्षर
+              📥 डाउनलोड सटीक हस्ताक्षर
             </a>
           </div>
         )}
