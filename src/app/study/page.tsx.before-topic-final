@@ -179,18 +179,13 @@ export default function StudyPage() {
 
             <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               {filteredTopics.map((topic) => (
-                <a
+                <button
                   key={topic.id}
-                  href={`/study/material?topic=${encodeURIComponent(topic.id)}&exam=${encodeURIComponent(selectedExam)}`}
-                  className="block rounded-xl border border-gray-200 bg-white p-4 text-left font-semibold text-gray-900 transition hover:border-blue-500 hover:bg-blue-50"
+                  type="button"
+                  className="rounded-xl border border-gray-200 bg-white p-4 text-left font-semibold text-gray-900 transition hover:border-blue-300 hover:bg-gray-50"
                 >
-                  <span className="block">
-                    {topic.name}
-                  </span>
-                  <span className="mt-2 block text-sm font-semibold text-blue-600">
-                    Open Study Material →
-                  </span>
-                </a>
+                  {topic.name}
+                </button>
               ))}
             </div>
           </section>
