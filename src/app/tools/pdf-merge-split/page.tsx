@@ -1,310 +1,358 @@
-'use client';
+"use client";
 
-import { ChangeEvent, useState } from 'react';
-import { PDFDocument } from 'pdf-lib';
+import { useState, ChangeEvent } from "react";
+import { PDFDocument } from "pdf-lib";
 
-type Mode = 'merge' | 'split';
+interface PdfFileItem {
+  id: string;
+  name: string;
+  bytes: Uint8Array;
+  pageCount: number;
+}
 
 export default function PdfMergeSplitPage() {
-  const [mode, setMode] = useState<Mode>('merge');
-  const [files, setFiles] = useState<File[]>([]);
-  const [error, setError] = useState('');
-  const [processing, setProcessing] = useState(false);
-  const [resultUrl, setResultUrl] = useState('');
-  const [splitPage, setSplitPage] = useState('1');
+  const [activeTab, setActiveTab] = useState<"merge" | "split">("merge");
 
-  const handleFiles = (event: ChangeEvent<HTMLInputElement>) => {
-    setError('');
-    setResultUrl('');
+  // Merge State
+  const [mergeFiles, setMergeFiles] = useState<PdfFileItem[]>([]);
+  const [mergeBusy, setMergeBusy] = useState(false);
+  const [mergeDownloadUrl, setMergeDownloadUrl] = useState<string | null>(null);
 
-    const selected = Array.from(event.target.files || []);
+  // Split State
+  const [splitFile, setSplitFile] = useState<PdfFileItem | null>(null);
+  const [splitRange, setSplitRange] = useState<string>("");
+  const [splitBusy, setSplitBusy] = useState(false);
+  const [splitDownloadUrl, setSplitDownloadUrl] = useState<string | null>(null);
+  const [splitError, setSplitError] = useState<string>("");
 
-    if (!selected.length) return;
+  // Handle Multi-file Upload for Merge
+  const handleMergeUpload = async (e: ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
 
-    const invalid = selected.find(
-      (file) => file.type !== 'application/pdf'
-    );
+    if (mergeDownloadUrl) URL.revokeObjectURL(mergeDownloadUrl);
+    setMergeDownloadUrl(null);
 
-    if (invalid) {
-      setError('Please select PDF files only.');
-      return;
+    const loaded: PdfFileItem[] = [];
+    for (const f of Array.from(files)) {
+      try {
+        const arr = new Uint8Array(await f.arrayBuffer());
+        const pdf = await PDFDocument.load(arr);
+        loaded.push({
+          id: Math.random().toString(36).substring(2, 9),
+          name: f.name,
+          bytes: arr,
+          pageCount: pdf.getPageCount(),
+        });
+      } catch {
+        alert(`${f.name} लोड करने में समस्या आई।`);
+      }
     }
-
-    const tooLarge = selected.find(
-      (file) => file.size > 25 * 1024 * 1024
-    );
-
-    if (tooLarge) {
-      setError('Maximum file size is 25 MB per PDF.');
-      return;
-    }
-
-    setFiles(selected);
+    setMergeFiles((prev) => [...prev, ...loaded]);
   };
 
-  const mergePdfs = async () => {
-    if (!files.length) {
-      setError('Please select at least one PDF.');
+  const removeMergeFile = (id: string) => {
+    setMergeFiles((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  const moveMergeFile = (index: number, direction: "up" | "down") => {
+    const target = direction === "up" ? index - 1 : index + 1;
+    if (target < 0 || target >= mergeFiles.length) return;
+    const updated = [...mergeFiles];
+    const temp = updated[index];
+    updated[index] = updated[target];
+    updated[target] = temp;
+    setMergeFiles(updated);
+  };
+
+  const runMerge = async () => {
+    if (mergeFiles.length < 2) {
+      alert("कम से कम 2 PDF जोड़ना आवश्यक है।");
       return;
     }
-
-    setProcessing(true);
-    setError('');
-    setResultUrl('');
+    setMergeBusy(true);
 
     try {
       const mergedPdf = await PDFDocument.create();
-
-      for (const file of files) {
-        const bytes = await file.arrayBuffer();
-        const sourcePdf = await PDFDocument.load(bytes);
-        const pages = await mergedPdf.copyPages(
-          sourcePdf,
-          sourcePdf.getPageIndices()
-        );
-
-        pages.forEach((page) => mergedPdf.addPage(page));
+      for (const item of mergeFiles) {
+        const doc = await PDFDocument.load(item.bytes);
+        const copiedPages = await mergedPdf.copyPages(doc, doc.getPageIndices());
+        copiedPages.forEach((p) => mergedPdf.addPage(p));
       }
 
-      const pdfBytes = await mergedPdf.save();
-      const blob = new Blob([pdfBytes as BlobPart], {
-        type: 'application/pdf',
-      });
-
-      setResultUrl(URL.createObjectURL(blob));
-    } catch {
-      setError('Unable to merge the selected PDF files.');
+      const mergedBytes = await mergedPdf.save();
+      const blob = new Blob([mergedBytes.buffer as ArrayBuffer], { type: "application/pdf" });
+      if (mergeDownloadUrl) URL.revokeObjectURL(mergeDownloadUrl);
+      setMergeDownloadUrl(URL.createObjectURL(blob));
+    } catch (err) {
+      console.error(err);
+      alert("PDF Merge करने में त्रुटि आई।");
     } finally {
-      setProcessing(false);
+      setMergeBusy(false);
     }
   };
 
-  const splitPdf = async () => {
-    if (!files.length) {
-      setError('Please select a PDF.');
-      return;
-    }
+  // Handle Single File Upload for Split
+  const handleSplitUpload = async (e: ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
 
-    const pageNumber = Number(splitPage);
-
-    if (!Number.isInteger(pageNumber) || pageNumber < 1) {
-      setError('Please enter a valid page number.');
-      return;
-    }
-
-    setProcessing(true);
-    setError('');
-    setResultUrl('');
+    if (splitDownloadUrl) URL.revokeObjectURL(splitDownloadUrl);
+    setSplitDownloadUrl(null);
+    setSplitError("");
 
     try {
-      const bytes = await files[0].arrayBuffer();
-      const sourcePdf = await PDFDocument.load(bytes);
-      const pageIndex = pageNumber - 1;
+      const arr = new Uint8Array(await f.arrayBuffer());
+      const pdf = await PDFDocument.load(arr);
+      setSplitFile({
+        id: "split-target",
+        name: f.name,
+        bytes: arr,
+        pageCount: pdf.getPageCount(),
+      });
+      setSplitRange(`1-${Math.min(pdf.getPageCount(), 2)}`);
+    } catch {
+      alert("PDF फाइल पढ़ने में त्रुटि आई।");
+    }
+  };
 
-      if (pageIndex >= sourcePdf.getPageCount()) {
-        setError(
-          `This PDF has ${sourcePdf.getPageCount()} pages.`
-        );
-        return;
+  const runSplit = async () => {
+    if (!splitFile) return;
+    setSplitBusy(true);
+    setSplitError("");
+
+    try {
+      const doc = await PDFDocument.load(splitFile.bytes);
+      const total = doc.getPageCount();
+
+      // Parse range string (e.g., "1-3, 5")
+      const pagesToExtract = new Set<number>();
+      const parts = splitRange.split(",").map((s) => s.trim());
+
+      for (const part of parts) {
+        if (part.includes("-")) {
+          const [startStr, endStr] = part.split("-").map((s) => s.trim());
+          const start = parseInt(startStr, 10);
+          const end = parseInt(endStr, 10);
+          if (isNaN(start) || isNaN(end) || start > end || start < 1 || end > total) {
+            throw new Error(`अमान्य पेज रेंज: "${part}" (कुल पेज: ${total})`);
+          }
+          for (let i = start; i <= end; i++) pagesToExtract.add(i - 1);
+        } else {
+          const pageNum = parseInt(part, 10);
+          if (isNaN(pageNum) || pageNum < 1 || pageNum > total) {
+            throw new Error(`अमान्य पेज नंबर: "${part}" (कुल पेज: ${total})`);
+          }
+          pagesToExtract.add(pageNum - 1);
+        }
       }
 
-      const outputPdf = await PDFDocument.create();
-      const [page] = await outputPdf.copyPages(sourcePdf, [pageIndex]);
-      outputPdf.addPage(page);
+      const indices = Array.from(pagesToExtract).sort((a, b) => a - b);
+      if (indices.length === 0) throw new Error("कोई मान्य पेज नहीं चुना गया।");
 
-      const pdfBytes = await outputPdf.save();
-      const blob = new Blob([pdfBytes as BlobPart], {
-        type: 'application/pdf',
-      });
+      const splitPdf = await PDFDocument.create();
+      const copied = await splitPdf.copyPages(doc, indices);
+      copied.forEach((p) => splitPdf.addPage(p));
 
-      setResultUrl(URL.createObjectURL(blob));
-    } catch {
-      setError('Unable to split the selected PDF.');
+      const splitBytes = await splitPdf.save();
+      const blob = new Blob([splitBytes.buffer as ArrayBuffer], { type: "application/pdf" });
+      if (splitDownloadUrl) URL.revokeObjectURL(splitDownloadUrl);
+      setSplitDownloadUrl(URL.createObjectURL(blob));
+    } catch (err: any) {
+      setSplitError(err.message || "Split प्रक्रिया में त्रुटि आई।");
     } finally {
-      setProcessing(false);
+      setSplitBusy(false);
     }
-  };
-
-  const handleProcess = () => {
-    if (mode === 'merge') {
-      mergePdfs();
-    } else {
-      splitPdf();
-    }
-  };
-
-  const reset = () => {
-    if (resultUrl) {
-      URL.revokeObjectURL(resultUrl);
-    }
-
-    setFiles([]);
-    setError('');
-    setResultUrl('');
-    setSplitPage('1');
   };
 
   return (
-    <main className="min-h-screen px-4 py-10">
-      <div className="mx-auto max-w-3xl">
-        <div className="mb-8 text-center">
-          <h1 className="text-3xl font-bold sm:text-4xl">
-            PDF Merge & Split
-          </h1>
-          <p className="mt-3 text-gray-600 dark:text-gray-300">
-            Merge multiple PDFs or extract a page from a PDF.
-          </p>
-          <p className="mt-2 text-sm text-gray-500">
-            Files are processed locally in your browser.
-          </p>
-        </div>
+    <main className="min-h-screen bg-slate-50 py-10 px-4 text-slate-800">
+      <div className="max-w-3xl mx-auto bg-white p-6 sm:p-8 rounded-2xl shadow-sm border border-slate-200">
+        <h1 className="text-2xl sm:text-3xl font-bold text-blue-700 text-center">
+          PDF Merge & Split
+        </h1>
+        <p className="text-sm text-slate-500 text-center mt-1">
+          PDF फाइलों को जोड़ें या पसंदीदा पेजों को अलग निकालें
+        </p>
 
-        <div className="mb-6 flex rounded-xl border p-1">
+        {/* Tab Switcher */}
+        <div className="flex border-b border-slate-200 mt-6 mb-6">
           <button
-            type="button"
-            onClick={() => {
-              setMode('merge');
-              setError('');
-              setResultUrl('');
-            }}
-            className={`flex-1 rounded-lg px-4 py-3 font-semibold ${
-              mode === 'merge'
-                ? 'bg-black text-white dark:bg-white dark:text-black'
-                : ''
+            onClick={() => setActiveTab("merge")}
+            className={`flex-1 py-3 text-center text-sm font-bold border-b-2 transition ${
+              activeTab === "merge"
+                ? "border-blue-600 text-blue-600"
+                : "border-transparent text-slate-500 hover:text-slate-800"
             }`}
           >
-            Merge PDFs
+            📑 PDF Merge (फाइलें जोड़ें)
           </button>
-
           <button
-            type="button"
-            onClick={() => {
-              setMode('split');
-              setError('');
-              setResultUrl('');
-            }}
-            className={`flex-1 rounded-lg px-4 py-3 font-semibold ${
-              mode === 'split'
-                ? 'bg-black text-white dark:bg-white dark:text-black'
-                : ''
+            onClick={() => setActiveTab("split")}
+            className={`flex-1 py-3 text-center text-sm font-bold border-b-2 transition ${
+              activeTab === "split"
+                ? "border-blue-600 text-blue-600"
+                : "border-transparent text-slate-500 hover:text-slate-800"
             }`}
           >
-            Split PDF
+            ✂️ PDF Split (पेज अलग करें)
           </button>
         </div>
 
-        <section className="rounded-2xl border p-6 shadow-sm">
-          <label className="block">
-            <span className="mb-2 block font-semibold">
-              {mode === 'merge'
-                ? 'Select PDF files'
-                : 'Select a PDF file'}
-            </span>
-
-            <input
-              type="file"
-              accept="application/pdf"
-              multiple={mode === 'merge'}
-              onChange={handleFiles}
-              className="block w-full rounded-lg border p-3"
-            />
-          </label>
-
-          {mode === 'split' && (
-            <div className="mt-5">
-              <label className="mb-2 block font-semibold">
-                Page number to extract
-              </label>
-
+        {/* MERGE TAB CONTENT */}
+        {activeTab === "merge" && (
+          <div>
+            <div className="border-2 border-dashed border-blue-200 bg-blue-50/40 rounded-xl p-6 text-center">
               <input
-                type="number"
-                min="1"
-                value={splitPage}
-                onChange={(e) => setSplitPage(e.target.value)}
-                className="w-full rounded-lg border p-3"
+                type="file"
+                accept=".pdf,application/pdf"
+                multiple
+                id="mergeInput"
+                onChange={handleMergeUpload}
+                className="hidden"
               />
-            </div>
-          )}
-
-          {files.length > 0 && (
-            <div className="mt-5 rounded-xl bg-gray-50 p-4 dark:bg-gray-900">
-              <p className="font-semibold">
-                Selected files: {files.length}
-              </p>
-
-              <ul className="mt-2 space-y-1 text-sm">
-                {files.map((file) => (
-                  <li key={`${file.name}-${file.size}`}>
-                    {file.name} —{' '}
-                    {(file.size / 1024 / 1024).toFixed(2)} MB
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {error && (
-            <div className="mt-5 rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-700">
-              {error}
-            </div>
-          )}
-
-          <div className="mt-6 flex flex-wrap gap-3">
-            <button
-              type="button"
-              onClick={handleProcess}
-              disabled={processing || files.length === 0}
-              className="rounded-lg bg-black px-6 py-3 font-semibold text-white disabled:opacity-50 dark:bg-white dark:text-black"
-            >
-              {processing
-                ? 'Processing...'
-                : mode === 'merge'
-                  ? 'Merge PDFs'
-                  : 'Extract Page'}
-            </button>
-
-            <button
-              type="button"
-              onClick={reset}
-              className="rounded-lg border px-6 py-3 font-semibold"
-            >
-              Reset
-            </button>
-          </div>
-
-          {resultUrl && (
-            <div className="mt-6 rounded-xl border p-5">
-              <p className="mb-3 font-semibold">
-                Your PDF is ready.
-              </p>
-
-              <a
-                href={resultUrl}
-                download={
-                  mode === 'merge'
-                    ? 'studysetu-merged.pdf'
-                    : 'studysetu-extracted-page.pdf'
-                }
-                className="inline-block rounded-lg bg-black px-6 py-3 font-semibold text-white dark:bg-white dark:text-black"
+              <label
+                htmlFor="mergeInput"
+                className="cursor-pointer inline-block bg-blue-600 text-white px-5 py-2.5 rounded-lg font-medium hover:bg-blue-700 transition"
               >
-                Download PDF
-              </a>
+                ➕ PDF फाइलें चुनें (एक साथ कई)
+              </label>
             </div>
-          )}
-        </section>
 
-        <section className="mt-8 rounded-2xl border p-6">
-          <h2 className="text-xl font-bold">
-            PDF Merge & Split — StudySetu
-          </h2>
+            {mergeFiles.length > 0 && (
+              <div className="mt-6 space-y-3">
+                <p className="text-xs font-bold text-slate-600 uppercase">
+                  जोड़ने के लिए फाइलें ({mergeFiles.length})
+                </p>
+                {mergeFiles.map((file, idx) => (
+                  <div
+                    key={file.id}
+                    className="flex items-center justify-between p-3 border border-slate-200 rounded-lg bg-slate-50"
+                  >
+                    <div className="overflow-hidden">
+                      <p className="text-sm font-semibold truncate max-w-xs sm:max-w-md">{file.name}</p>
+                      <p className="text-xs text-slate-500">{file.pageCount} पेज</p>
+                    </div>
+                    <div className="flex items-center space-x-1">
+                      <button
+                        onClick={() => moveMergeFile(idx, "up")}
+                        disabled={idx === 0}
+                        className="p-1 text-slate-500 hover:text-blue-600 disabled:opacity-30"
+                      >
+                        ▲
+                      </button>
+                      <button
+                        onClick={() => moveMergeFile(idx, "down")}
+                        disabled={idx === mergeFiles.length - 1}
+                        className="p-1 text-slate-500 hover:text-blue-600 disabled:opacity-30"
+                      >
+                        ▼
+                      </button>
+                      <button
+                        onClick={() => removeMergeFile(file.id)}
+                        className="p-1 text-red-500 hover:text-red-700 ml-2"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                ))}
 
-          <p className="mt-3 text-sm leading-6 text-gray-600 dark:text-gray-300">
-            Combine multiple PDF documents into one file or extract
-            a specific page from a PDF. This tool is designed for
-            students and applicants preparing documents for exams and
-            online applications.
-          </p>
-        </section>
+                <button
+                  onClick={runMerge}
+                  disabled={mergeBusy || mergeFiles.length < 2}
+                  className="w-full mt-4 bg-blue-600 text-white font-semibold py-3 rounded-xl hover:bg-blue-700 transition disabled:opacity-50"
+                >
+                  {mergeBusy ? "PDF जोड़ी जा रही है..." : "सभी PDF जोड़ें (Merge PDF)"}
+                </button>
+              </div>
+            )}
+
+            {mergeDownloadUrl && (
+              <div className="mt-6 p-4 rounded-xl bg-green-50 border border-green-200 text-center">
+                <p className="text-sm font-bold text-green-800">PDF सफलतापूर्वक जुड़ गई!</p>
+                <a
+                  href={mergeDownloadUrl}
+                  download="studysetu-merged.pdf"
+                  className="inline-block mt-3 bg-green-600 text-white px-6 py-2.5 rounded-lg text-sm font-bold hover:bg-green-700 transition"
+                >
+                  📥 डाउनलोड Merged PDF
+                </a>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* SPLIT TAB CONTENT */}
+        {activeTab === "split" && (
+          <div>
+            <div className="border-2 border-dashed border-blue-200 bg-blue-50/40 rounded-xl p-6 text-center">
+              <input
+                type="file"
+                accept=".pdf,application/pdf"
+                id="splitInput"
+                onChange={handleSplitUpload}
+                className="hidden"
+              />
+              <label
+                htmlFor="splitInput"
+                className="cursor-pointer inline-block bg-blue-600 text-white px-5 py-2.5 rounded-lg font-medium hover:bg-blue-700 transition"
+              >
+                📄 PDF फाइल चुनें
+              </label>
+            </div>
+
+            {splitFile && (
+              <div className="mt-6 space-y-4">
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                  <p className="text-sm font-bold text-slate-800 truncate">{splitFile.name}</p>
+                  <p className="text-xs text-slate-500">कुल पेज: <strong>{splitFile.pageCount}</strong></p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">
+                    कौन से पेज अलग करने हैं? (पेज रेंज दर्ज करें)
+                  </label>
+                  <input
+                    type="text"
+                    value={splitRange}
+                    onChange={(e) => setSplitRange(e.target.value)}
+                    placeholder="उदा. 1-3, 5, 8"
+                    className="w-full border border-slate-300 p-2.5 rounded-lg text-sm"
+                  />
+                  <p className="text-xs text-slate-400 mt-1">
+                    उदाहरण: <strong>1-3</strong> (पेज 1 से 3) या <strong>1, 4, 7</strong>
+                  </p>
+                </div>
+
+                {splitError && (
+                  <p className="text-xs text-red-600 font-semibold">{splitError}</p>
+                )}
+
+                <button
+                  onClick={runSplit}
+                  disabled={splitBusy}
+                  className="w-full bg-blue-600 text-white font-semibold py-3 rounded-xl hover:bg-blue-700 transition disabled:opacity-50"
+                >
+                  {splitBusy ? "पेज अलग हो रहे हैं..." : "पेज अलग करें (Split PDF)"}
+                </button>
+              </div>
+            )}
+
+            {splitDownloadUrl && (
+              <div className="mt-6 p-4 rounded-xl bg-green-50 border border-green-200 text-center">
+                <p className="text-sm font-bold text-green-800">पेज सफलतापूर्वक अलग कर दिए गए!</p>
+                <a
+                  href={splitDownloadUrl}
+                  download="studysetu-split.pdf"
+                  className="inline-block mt-3 bg-green-600 text-white px-6 py-2.5 rounded-lg text-sm font-bold hover:bg-green-700 transition"
+                >
+                  📥 डाउनलोड Split PDF
+                </a>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </main>
   );
