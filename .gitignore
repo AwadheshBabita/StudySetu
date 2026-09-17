@@ -45,3 +45,5 @@ next-env.d.ts
 *.upsc-backup-*
 src/data/*.backup-*
 studysetu.log
+src/app/study/page.tsx.backup2
+src/app/study/page.tsx.final-backup
