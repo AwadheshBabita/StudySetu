@@ -12,7 +12,6 @@ interface Point {
 export default function DocumentScannerPage() {
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [step, setStep] = useState<"capture" | "crop" | "filter">("capture");
-  const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
   const [filter, setFilter] = useState<FilterMode>("magic");
   const [brightness, setBrightness] = useState<number>(10);
   const [contrast, setContrast] = useState<number>(25);
@@ -28,91 +27,41 @@ export default function DocumentScannerPage() {
   ]);
   const [draggingIdx, setDraggingIdx] = useState<number | null>(null);
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
+  const nativeCameraInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
   const editorCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const originalImgRef = useRef<HTMLImageElement | null>(null);
   const deskewedCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  // Start Live Camera
-  const startCamera = async () => {
-    try {
-      if (downloadUrl) URL.revokeObjectURL(downloadUrl);
-      setDownloadUrl(null);
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } },
-        audio: false,
-      });
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.play();
-      }
-      setIsCameraActive(true);
-    } catch (err) {
-      console.error(err);
-      alert("कैमरा एक्सेस नहीं मिला। कृपया परमिशन दें या फ़ाइल अपलोड का उपयोग करें।");
-    }
-  };
-
-  const stopCamera = () => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
-    }
-    setIsCameraActive(false);
-  };
-
-  const capturePhoto = () => {
-    if (!videoRef.current) return;
-    const video = videoRef.current;
-    const canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth || 1280;
-    canvas.height = video.videoHeight || 720;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    const dataUrl = canvas.toDataURL("image/jpeg", 0.95);
-    stopCamera();
-    loadImage(dataUrl);
-  };
-
-  const handleFileUpload = (e: ChangeEvent<HTMLInputElement>) => {
+  const handleFile = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    stopCamera();
-    const reader = new FileReader();
-    reader.onload = () => loadImage(reader.result as string);
-    reader.readAsDataURL(file);
-  };
 
-  const loadImage = (src: string) => {
     if (downloadUrl) URL.revokeObjectURL(downloadUrl);
     setDownloadUrl(null);
 
-    const img = new Image();
-    img.onload = () => {
-      originalImgRef.current = img;
-      setImageSrc(src);
-      setStep("crop");
+    const reader = new FileReader();
+    reader.onload = () => {
+      const src = reader.result as string;
+      const img = new Image();
+      img.onload = () => {
+        originalImgRef.current = img;
+        setImageSrc(src);
+        setStep("crop");
 
-      const w = img.naturalWidth;
-      const h = img.naturalHeight;
-      setCorners([
-        { x: Math.round(w * 0.1), y: Math.round(h * 0.1) },
-        { x: Math.round(w * 0.9), y: Math.round(h * 0.1) },
-        { x: Math.round(w * 0.9), y: Math.round(h * 0.9) },
-        { x: Math.round(w * 0.1), y: Math.round(h * 0.9) },
-      ]);
+        const w = img.naturalWidth;
+        const h = img.naturalHeight;
+        setCorners([
+          { x: Math.round(w * 0.1), y: Math.round(h * 0.1) },
+          { x: Math.round(w * 0.9), y: Math.round(h * 0.1) },
+          { x: Math.round(w * 0.9), y: Math.round(h * 0.9) },
+          { x: Math.round(w * 0.1), y: Math.round(h * 0.9) },
+        ]);
+      };
+      img.src = src;
     };
-    img.src = src;
+    reader.readAsDataURL(file);
   };
-
-  useEffect(() => {
-    return () => stopCamera();
-  }, []);
 
   // Draw Interactive Editor (Image + 4 Corner Pins + Polygon Line)
   useEffect(() => {
@@ -346,72 +295,49 @@ export default function DocumentScannerPage() {
     <main className="min-h-screen bg-slate-50 py-10 px-4 text-slate-800">
       <div className="max-w-3xl mx-auto bg-white p-6 sm:p-8 rounded-2xl shadow-sm border border-slate-200">
         <h1 className="text-2xl sm:text-3xl font-bold text-blue-700 text-center">
-          Live CamScanner & Straightener
+          Smart Document Scanner & Straightener
         </h1>
         <p className="text-sm text-slate-500 text-center mt-1">
-          लाइव कैमरे से फ़ोटो खींचें, चारों कोनों से तिरछा कागज़ सीधा करें और साफ़ ज़ेरॉक्स प्रिंट पाएँ
+          कैमरे से फ़ोटो खींचें, चारों कोनों से तिरछा कागज़ सीधा करें और साफ़ ज़ेरॉक्स प्रिंट पाएँ
         </p>
 
         {/* STEP 1: CAPTURE OR UPLOAD */}
-        {step === "capture" && !isCameraActive && (
+        {step === "capture" && (
           <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Native Mobile Camera Input */}
+            <input
+              type="file"
+              accept="image/*"
+              capture="environment"
+              ref={nativeCameraInputRef}
+              onChange={handleFile}
+              className="hidden"
+            />
             <button
-              onClick={startCamera}
+              onClick={() => nativeCameraInputRef.current?.click()}
               className="p-8 border-2 border-dashed border-blue-300 rounded-2xl bg-blue-50/50 hover:bg-blue-100/50 transition flex flex-col items-center justify-center space-y-3"
             >
-              <span className="text-4xl">📷</span>
-              <span className="font-bold text-base text-blue-700">लाइव कैमरा से स्कैन करें</span>
-              <span className="text-xs text-slate-500 text-center">सीधे कैमरे से कागज़ की तस्वीर लें</span>
+              <span className="text-4xl">📸</span>
+              <span className="font-bold text-base text-blue-700">कैमरा खोलें व फ़ोटो लें</span>
+              <span className="text-xs text-slate-500 text-center">मोबाइल का एचडी कैमरा तुरंत खुलेगा</span>
             </button>
 
-            <div
-              onClick={() => fileInputRef.current?.click()}
-              className="p-8 border-2 border-dashed border-slate-300 rounded-2xl bg-slate-50 hover:bg-slate-100 transition flex flex-col items-center justify-center space-y-3 cursor-pointer"
+            {/* Gallery Upload */}
+            <input
+              type="file"
+              accept="image/*"
+              ref={galleryInputRef}
+              onChange={handleFile}
+              className="hidden"
+            />
+            <button
+              onClick={() => galleryInputRef.current?.click()}
+              className="p-8 border-2 border-dashed border-slate-300 rounded-2xl bg-slate-50 hover:bg-slate-100 transition flex flex-col items-center justify-center space-y-3"
             >
-              <input
-                type="file"
-                accept="image/*"
-                ref={fileInputRef}
-                onChange={handleFileUpload}
-                className="hidden"
-              />
               <span className="text-4xl">📁</span>
-              <span className="font-bold text-base text-slate-700">गैलरी से फ़ोटो चुनें</span>
+              <span className="font-bold text-base text-slate-700">गैलरी से चुनें</span>
               <span className="text-xs text-slate-500 text-center">पहले से खींची हुई फ़ोटो अपलोड करें</span>
-            </div>
-          </div>
-        )}
-
-        {/* LIVE CAMERA VIEWFINDER */}
-        {isCameraActive && (
-          <div className="mt-6 space-y-4">
-            <div className="relative rounded-2xl overflow-hidden bg-black aspect-[3/4] max-h-[520px] mx-auto border-2 border-blue-500 shadow-lg">
-              <video ref={videoRef} playsInline autoPlay className="w-full h-full object-cover" />
-              {/* Document Alignment Frame */}
-              <div className="absolute inset-8 border-2 border-dashed border-white/60 rounded-xl pointer-events-none flex items-center justify-center">
-                <span className="text-white/80 text-xs bg-black/40 px-3 py-1 rounded-full backdrop-blur">
-                  कागज़ को इस फ़्रेम में रखें
-                </span>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-center space-x-4">
-              <button
-                type="button"
-                onClick={stopCamera}
-                className="px-5 py-2.5 rounded-xl border border-slate-300 text-slate-600 text-xs font-bold hover:bg-slate-100"
-              >
-                ✕ रद्द करें
-              </button>
-              <button
-                type="button"
-                onClick={capturePhoto}
-                className="px-8 py-3 rounded-xl bg-blue-600 text-white font-bold text-sm hover:bg-blue-700 shadow-md flex items-center space-x-2"
-              >
-                <span>📸</span>
-                <span>फ़ोटो लें (Capture)</span>
-              </button>
-            </div>
+            </button>
           </div>
         )}
 
