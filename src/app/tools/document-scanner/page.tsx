@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, ChangeEvent, MouseEvent, TouchEvent } from "react";
+import { PDFDocument } from "pdf-lib";
 
 type FilterMode = "magic" | "bw" | "grayscale" | "original";
 
@@ -15,10 +16,11 @@ export default function DocumentScannerPage() {
   const [filter, setFilter] = useState<FilterMode>("magic");
   const [brightness, setBrightness] = useState<number>(10);
   const [contrast, setContrast] = useState<number>(25);
-  const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
+  const [jpgDownloadUrl, setJpgDownloadUrl] = useState<string | null>(null);
+  const [pdfDownloadUrl, setPdfDownloadUrl] = useState<string | null>(null);
   const [processing, setProcessing] = useState<boolean>(false);
+  const [pdfGenerating, setPdfGenerating] = useState<boolean>(false);
 
-  // 4 Corner Points for Perspective Transform
   const [corners, setCorners] = useState<Point[]>([
     { x: 40, y: 40 },
     { x: 360, y: 40 },
@@ -33,20 +35,42 @@ export default function DocumentScannerPage() {
   const originalImgRef = useRef<HTMLImageElement | null>(null);
   const deskewedCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  const handleFile = (e: ChangeEvent<HTMLInputElement>) => {
+  const clearUrls = () => {
+    if (jpgDownloadUrl) URL.revokeObjectURL(jpgDownloadUrl);
+    if (pdfDownloadUrl) URL.revokeObjectURL(pdfDownloadUrl);
+    setJpgDownloadUrl(null);
+    setPdfDownloadUrl(null);
+  };
+
+  const handleFile = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (downloadUrl) URL.revokeObjectURL(downloadUrl);
-    setDownloadUrl(null);
+    clearUrls();
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      const src = reader.result as string;
+    try {
+      // Auto-correct EXIF orientation using createImageBitmap
+      let finalDataUrl: string;
+      if (typeof window !== "undefined" && "createImageBitmap" in window) {
+        const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+        const c = document.createElement("canvas");
+        c.width = bitmap.width;
+        c.height = bitmap.height;
+        const ctx = c.getContext("2d");
+        if (ctx) {
+          ctx.drawImage(bitmap, 0, 0);
+          finalDataUrl = c.toDataURL("image/jpeg", 0.95);
+        } else {
+          finalDataUrl = await readAsDataURL(file);
+        }
+      } else {
+        finalDataUrl = await readAsDataURL(file);
+      }
+
       const img = new Image();
       img.onload = () => {
         originalImgRef.current = img;
-        setImageSrc(src);
+        setImageSrc(finalDataUrl);
         setStep("crop");
 
         const w = img.naturalWidth;
@@ -58,12 +82,60 @@ export default function DocumentScannerPage() {
           { x: Math.round(w * 0.1), y: Math.round(h * 0.9) },
         ]);
       };
-      img.src = src;
-    };
-    reader.readAsDataURL(file);
+      img.src = finalDataUrl;
+    } catch {
+      const fallbackUrl = await readAsDataURL(file);
+      const img = new Image();
+      img.onload = () => {
+        originalImgRef.current = img;
+        setImageSrc(fallbackUrl);
+        setStep("crop");
+      };
+      img.src = fallbackUrl;
+    }
   };
 
-  // Draw Interactive Editor (Image + 4 Corner Pins + Polygon Line)
+  const readAsDataURL = (file: File): Promise<string> => {
+    return new Promise((res) => {
+      const r = new FileReader();
+      r.onload = () => res(r.result as string);
+      r.readAsDataURL(file);
+    });
+  };
+
+  // Manual 90 degree rotate button in crop mode
+  const rotateSourceImage = () => {
+    if (!originalImgRef.current) return;
+    const img = originalImgRef.current;
+
+    const rotCanvas = document.createElement("canvas");
+    rotCanvas.width = img.naturalHeight;
+    rotCanvas.height = img.naturalWidth;
+    const ctx = rotCanvas.getContext("2d");
+    if (!ctx) return;
+
+    ctx.translate(rotCanvas.width / 2, rotCanvas.height / 2);
+    ctx.rotate((90 * Math.PI) / 180);
+    ctx.drawImage(img, -img.naturalWidth / 2, -img.naturalHeight / 2);
+
+    const rotatedSrc = rotCanvas.toDataURL("image/jpeg", 0.95);
+    const newImg = new Image();
+    newImg.onload = () => {
+      originalImgRef.current = newImg;
+      setImageSrc(rotatedSrc);
+
+      const w = newImg.naturalWidth;
+      const h = newImg.naturalHeight;
+      setCorners([
+        { x: Math.round(w * 0.1), y: Math.round(h * 0.1) },
+        { x: Math.round(w * 0.9), y: Math.round(h * 0.1) },
+        { x: Math.round(w * 0.9), y: Math.round(h * 0.9) },
+        { x: Math.round(w * 0.1), y: Math.round(h * 0.9) },
+      ]);
+    };
+    newImg.src = rotatedSrc;
+  };
+
   useEffect(() => {
     if (step !== "crop" || !originalImgRef.current || !editorCanvasRef.current) return;
     const img = originalImgRef.current;
@@ -75,7 +147,6 @@ export default function DocumentScannerPage() {
 
     ctx.drawImage(img, 0, 0);
 
-    // Draw quadrilateral
     ctx.strokeStyle = "#2563eb";
     ctx.lineWidth = Math.max(3, Math.round(img.naturalWidth / 200));
     ctx.beginPath();
@@ -89,7 +160,6 @@ export default function DocumentScannerPage() {
     ctx.fillStyle = "rgba(37, 99, 235, 0.15)";
     ctx.fill();
 
-    // Draw 4 corner handles
     const radius = Math.max(14, Math.round(img.naturalWidth / 65));
     corners.forEach((p, idx) => {
       ctx.fillStyle = "#ffffff";
@@ -154,7 +224,6 @@ export default function DocumentScannerPage() {
 
   const handlePointerUp = () => setDraggingIdx(null);
 
-  // Bilinear Perspective Transform
   const runStraighten = () => {
     if (!originalImgRef.current) return;
     setProcessing(true);
@@ -276,8 +345,8 @@ export default function DocumentScannerPage() {
 
     finalCanvas.toBlob((blob) => {
       if (blob) {
-        if (downloadUrl) URL.revokeObjectURL(downloadUrl);
-        setDownloadUrl(URL.createObjectURL(blob));
+        if (jpgDownloadUrl) URL.revokeObjectURL(jpgDownloadUrl);
+        setJpgDownloadUrl(URL.createObjectURL(blob));
       }
     }, "image/jpeg", 0.95);
   };
@@ -286,8 +355,59 @@ export default function DocumentScannerPage() {
     setFilter(newFilter);
     setBrightness(newB);
     setContrast(newC);
+    if (pdfDownloadUrl) {
+      URL.revokeObjectURL(pdfDownloadUrl);
+      setPdfDownloadUrl(null);
+    }
     if (deskewedCanvasRef.current) {
       applyFilter(deskewedCanvasRef.current, newFilter, newB, newC);
+    }
+  };
+
+  const generateA4Pdf = async () => {
+    if (!jpgDownloadUrl) return;
+    setPdfGenerating(true);
+
+    try {
+      const response = await fetch(jpgDownloadUrl);
+      const imgBytes = await response.arrayBuffer();
+
+      const pdfDoc = await PDFDocument.create();
+      const embeddedImg = await pdfDoc.embedJpg(imgBytes);
+
+      const a4Width = 595.28;
+      const a4Height = 841.89;
+      const page = pdfDoc.addPage([a4Width, a4Height]);
+
+      const margin = 20;
+      const availableWidth = a4Width - margin * 2;
+      const availableHeight = a4Height - margin * 2;
+
+      const imgDims = embeddedImg.scaleToFit(availableWidth, availableHeight);
+
+      page.drawImage(embeddedImg, {
+        x: (a4Width - imgDims.width) / 2,
+        y: (a4Height - imgDims.height) / 2,
+        width: imgDims.width,
+        height: imgDims.height,
+      });
+
+      const pdfBytes = await pdfDoc.save();
+      const pdfBlob = new Blob([pdfBytes.buffer as ArrayBuffer], { type: "application/pdf" });
+
+      if (pdfDownloadUrl) URL.revokeObjectURL(pdfDownloadUrl);
+      const url = URL.createObjectURL(pdfBlob);
+      setPdfDownloadUrl(url);
+
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "studysetu-scanned-doc.pdf";
+      link.click();
+    } catch (err) {
+      console.error(err);
+      alert("PDF बनाने में त्रुटि आई।");
+    } finally {
+      setPdfGenerating(false);
     }
   };
 
@@ -298,13 +418,12 @@ export default function DocumentScannerPage() {
           Smart Document Scanner & Straightener
         </h1>
         <p className="text-sm text-slate-500 text-center mt-1">
-          कैमरे से फ़ोटो खींचें, चारों कोनों से तिरछा कागज़ सीधा करें और साफ़ ज़ेरॉक्स प्रिंट पाएँ
+          कैमरे से फ़ोटो खींचें, चारों कोनों से सीधा करें और JPG या PDF में डाउनलोड करें
         </p>
 
         {/* STEP 1: CAPTURE OR UPLOAD */}
         {step === "capture" && (
           <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {/* Native Mobile Camera Input */}
             <input
               type="file"
               accept="image/*"
@@ -322,7 +441,6 @@ export default function DocumentScannerPage() {
               <span className="text-xs text-slate-500 text-center">मोबाइल का एचडी कैमरा तुरंत खुलेगा</span>
             </button>
 
-            {/* Gallery Upload */}
             <input
               type="file"
               accept="image/*"
@@ -345,7 +463,15 @@ export default function DocumentScannerPage() {
         {imageSrc && step === "crop" && (
           <div className="mt-6 space-y-4">
             <div className="bg-blue-50 border border-blue-200 p-3 rounded-xl text-xs text-blue-800 flex items-center justify-between">
-              <span>👉 चारों नंबर वाले गोल डॉट्स (1, 2, 3, 4) को उंगली से खींचकर मुड़े हुए कागज़ के कोनों पर सेट करें।</span>
+              <span>👉 चारों गोल डॉट्स (1, 2, 3, 4) को कागज़ के कोनों पर सेट करें।</span>
+              <button
+                type="button"
+                onClick={rotateSourceImage}
+                className="ml-2 bg-white px-3 py-1 rounded-lg border border-blue-300 font-bold hover:bg-blue-100 flex items-center space-x-1"
+              >
+                <span>🔄</span>
+                <span>90° घुमाएँ</span>
+              </button>
             </div>
 
             <div className="border border-slate-300 rounded-xl overflow-hidden bg-slate-900 flex items-center justify-center p-2 touch-none">
@@ -364,7 +490,7 @@ export default function DocumentScannerPage() {
             <div className="flex space-x-3">
               <button
                 type="button"
-                onClick={() => { setStep("capture"); setImageSrc(null); }}
+                onClick={() => { setStep("capture"); setImageSrc(null); clearUrls(); }}
                 className="px-4 py-3 border border-slate-300 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50"
               >
                 ↺ नई तस्वीर लें
@@ -394,7 +520,6 @@ export default function DocumentScannerPage() {
               </button>
             </div>
 
-            {/* Presets */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {[
                 { id: "magic", label: "✨ Magic Color" },
@@ -417,7 +542,6 @@ export default function DocumentScannerPage() {
               ))}
             </div>
 
-            {/* Sliders */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">
@@ -447,25 +571,41 @@ export default function DocumentScannerPage() {
               </div>
             </div>
 
-            {/* Live Result Preview */}
-            {downloadUrl && (
+            {jpgDownloadUrl && (
               <div className="border border-slate-200 rounded-xl overflow-hidden bg-slate-100 p-2 text-center">
                 <img
-                  src={downloadUrl}
+                  src={jpgDownloadUrl}
                   alt="Enhanced Document"
-                  className="max-h-[480px] mx-auto rounded object-contain shadow-sm"
+                  className="max-h-[440px] mx-auto rounded object-contain shadow-sm"
                 />
               </div>
             )}
 
-            {downloadUrl && (
-              <a
-                href={downloadUrl}
-                download="studysetu-straight-doc.jpg"
-                className="block text-center w-full bg-green-600 text-white font-bold py-3.5 rounded-xl hover:bg-green-700 transition text-sm sm:text-base"
-              >
-                📥 सीधा व साफ़ डॉक्यूमेंट डाउनलोड करें
-              </a>
+            {jpgDownloadUrl && (
+              <div className="space-y-3 pt-2">
+                <p className="text-xs font-bold text-slate-700 text-center uppercase tracking-wider">
+                  डाउनलोड फॉर्मेट चुनें:
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <a
+                    href={jpgDownloadUrl}
+                    download="studysetu-scanned-doc.jpg"
+                    className="flex items-center justify-center space-x-2 bg-emerald-600 text-white font-bold py-3.5 px-4 rounded-xl hover:bg-emerald-700 transition text-sm shadow-sm"
+                  >
+                    <span>🖼️</span>
+                    <span>JPG में डाउनलोड करें</span>
+                  </a>
+
+                  <button
+                    onClick={generateA4Pdf}
+                    disabled={pdfGenerating}
+                    className="flex items-center justify-center space-x-2 bg-blue-600 text-white font-bold py-3.5 px-4 rounded-xl hover:bg-blue-700 transition text-sm shadow-sm disabled:opacity-60"
+                  >
+                    <span>📑</span>
+                    <span>{pdfGenerating ? "PDF बन रही है..." : "A4 PDF में डाउनलोड करें"}</span>
+                  </button>
+                </div>
+              </div>
             )}
           </div>
         )}
