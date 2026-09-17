@@ -6,34 +6,75 @@ export default function IdCardCropperPage() {
   const [frontImg, setFrontImg] = useState<string | null>(null);
   const [backImg, setBackImg] = useState<string | null>(null);
   const [cardBorder, setCardBorder] = useState<boolean>(true);
+  const [layoutMode, setLayoutMode] = useState<"single" | "three">("single");
   const [processing, setProcessing] = useState<boolean>(false);
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
 
   const frontInputRef = useRef<HTMLInputElement>(null);
   const backInputRef = useRef<HTMLInputElement>(null);
 
-  const handleFrontUpload = (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      setFrontImg(reader.result as string);
-      if (downloadUrl) URL.revokeObjectURL(downloadUrl);
-      setDownloadUrl(null);
-    };
-    reader.readAsDataURL(file);
+  const cropToCardRatio = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const img = new Image();
+        img.onload = () => {
+          // Standard PVC ratio ~ 1.586
+          const targetRatio = 85.6 / 53.98;
+          const currentRatio = img.naturalWidth / img.naturalHeight;
+
+          let sX = 0, sY = 0, sW = img.naturalWidth, sH = img.naturalHeight;
+          if (currentRatio > targetRatio) {
+            sW = img.naturalHeight * targetRatio;
+            sX = (img.naturalWidth - sW) / 2;
+          } else {
+            sH = img.naturalWidth / targetRatio;
+            sY = (img.naturalHeight - sH) / 2;
+          }
+
+          const canvas = document.createElement("canvas");
+          canvas.width = 1011;
+          canvas.height = 638;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) return reject("Canvas error");
+
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = "high";
+          ctx.drawImage(img, sX, sY, sW, sH, 0, 0, canvas.width, canvas.height);
+          resolve(canvas.toDataURL("image/jpeg", 0.96));
+        };
+        img.onerror = reject;
+        img.src = reader.result as string;
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
   };
 
-  const handleBackUpload = (e: ChangeEvent<HTMLInputElement>) => {
+  const handleFrontUpload = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      setBackImg(reader.result as string);
+    try {
+      const cropped = await cropToCardRatio(file);
+      setFrontImg(cropped);
       if (downloadUrl) URL.revokeObjectURL(downloadUrl);
       setDownloadUrl(null);
-    };
-    reader.readAsDataURL(file);
+    } catch {
+      alert("फोटो लोड करने में समस्या आई");
+    }
+  };
+
+  const handleBackUpload = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const cropped = await cropToCardRatio(file);
+      setBackImg(cropped);
+      if (downloadUrl) URL.revokeObjectURL(downloadUrl);
+      setDownloadUrl(null);
+    } catch {
+      alert("फोटो लोड करने में समस्या आई");
+    }
   };
 
   const generatePrintableSheet = async () => {
@@ -61,23 +102,17 @@ export default function IdCardCropperPage() {
       const ctx = canvas.getContext("2d");
       if (!ctx) throw new Error("Canvas unsupported");
 
-      // Pure White Background
       ctx.fillStyle = "#ffffff";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      // Standard CR80 PVC Card Dimensions at 300 DPI:
-      // 85.6 mm x 53.98 mm ≈ 1011 x 638 pixels
       const cardWidth = 1011;
       const cardHeight = 638;
-
-      const gap = 120; // gap between front and back
+      const gap = 120;
       const startX = (canvas.width - (cardWidth * 2 + gap)) / 2;
-      const startY = 350; // top margin for easy printing & cutting
 
-      // Helper to draw rounded card
       const drawCard = (img: HTMLImageElement, x: number, y: number) => {
         ctx.save();
-        const radius = 35; // rounded card corner
+        const radius = 28;
         ctx.beginPath();
         ctx.moveTo(x + radius, y);
         ctx.lineTo(x + cardWidth - radius, y);
@@ -114,20 +149,23 @@ export default function IdCardCropperPage() {
         }
       };
 
-      // Draw Front Card
-      drawCard(imgFront, startX, startY);
+      const rows = layoutMode === "single" ? 1 : 3;
+      const rowGap = 160;
+      const initialY = 320;
 
-      // Draw Back Card
-      drawCard(imgBack, startX + cardWidth + gap, startY);
+      for (let i = 0; i < rows; i++) {
+        const curY = initialY + i * (cardHeight + rowGap);
+        drawCard(imgFront, startX, curY);
+        drawCard(imgBack, startX + cardWidth + gap, curY);
+      }
 
-      // Add Print / Cutting guidelines text
       ctx.fillStyle = "#64748b";
       ctx.font = "bold 32px sans-serif";
       ctx.textAlign = "center";
       ctx.fillText(
-        "StudySetu ID Card Print Sheet (300 DPI - Standard 85.6mm x 54mm PVC Size)",
+        "StudySetu ID Card Sheet (300 DPI - Standard 85.6mm x 54mm PVC Size - Direct Print)",
         canvas.width / 2,
-        startY - 80
+        220
       );
 
       const blob = await new Promise<Blob | null>((res) => {
@@ -153,10 +191,9 @@ export default function IdCardCropperPage() {
           ID Card / PVC Print Cropper
         </h1>
         <p className="text-sm text-slate-500 text-center mt-1">
-          पहचान पत्र (आधार, पैन, वोटर ID) का फ्रंट और बैक जोड़कर A4 साइज़ में प्रिंटेबल शीट तैयार करें
+          पहचान पत्र (आधार, पैन, वोटर ID) को ऑटो-क्रॉप करके A4 शीट पर असली स्मार्ट कार्ड साइज़ में प्रिंट करें
         </p>
 
-        {/* Upload Boxes Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-6">
           {/* Front Upload */}
           <div className="border-2 border-dashed border-blue-200 bg-blue-50/40 rounded-xl p-5 text-center flex flex-col items-center justify-center min-h-[160px]">
@@ -174,6 +211,7 @@ export default function IdCardCropperPage() {
                   alt="Front Preview"
                   className="h-24 w-40 object-cover rounded border shadow-sm mx-auto"
                 />
+                <span className="text-[11px] text-emerald-600 font-bold block">✓ ऑटो-क्रॉप्ड (PVC Ratio)</span>
                 <button
                   type="button"
                   onClick={() => frontInputRef.current?.click()}
@@ -212,6 +250,7 @@ export default function IdCardCropperPage() {
                   alt="Back Preview"
                   className="h-24 w-40 object-cover rounded border shadow-sm mx-auto"
                 />
+                <span className="text-[11px] text-emerald-600 font-bold block">✓ ऑटो-क्रॉप्ड (PVC Ratio)</span>
                 <button
                   type="button"
                   onClick={() => backInputRef.current?.click()}
@@ -236,22 +275,47 @@ export default function IdCardCropperPage() {
         </div>
 
         {/* Options */}
-        <div className="mt-6 p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between">
-          <label className="flex items-center space-x-2 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={cardBorder}
-              onChange={(e) => setCardBorder(e.target.checked)}
-              className="rounded border-slate-300 text-blue-600 w-4 h-4"
-            />
-            <span className="text-xs sm:text-sm font-semibold text-slate-700">
-              कटिंग बॉर्डर (Cutting Guide Border) जोड़ें
-            </span>
-          </label>
-          <span className="text-xs font-bold text-slate-500">A4 @ 300 DPI</span>
+        <div className="mt-6 space-y-3 bg-slate-50 border border-slate-200 rounded-xl p-4">
+          <div className="flex items-center justify-between">
+            <label className="flex items-center space-x-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={cardBorder}
+                onChange={(e) => setCardBorder(e.target.checked)}
+                className="rounded border-slate-300 text-blue-600 w-4 h-4"
+              />
+              <span className="text-xs sm:text-sm font-semibold text-slate-700">
+                कटिंग गाइड बॉर्डर (Cutting Guide Line)
+              </span>
+            </label>
+            <span className="text-xs font-bold text-slate-500">A4 @ 300 DPI</span>
+          </div>
+
+          <div className="border-t border-slate-200 pt-3 flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-700 uppercase">प्रिंट लेआउट:</span>
+            <div className="flex space-x-2">
+              <button
+                type="button"
+                onClick={() => setLayoutMode("single")}
+                className={`px-3 py-1 text-xs font-bold rounded-lg border ${
+                  layoutMode === "single" ? "bg-blue-600 text-white border-blue-600" : "bg-white text-slate-700"
+                }`}
+              >
+                1 कार्ड (Standard)
+              </button>
+              <button
+                type="button"
+                onClick={() => setLayoutMode("three")}
+                className={`px-3 py-1 text-xs font-bold rounded-lg border ${
+                  layoutMode === "three" ? "bg-blue-600 text-white border-blue-600" : "bg-white text-slate-700"
+                }`}
+              >
+                3 कार्ड्स (Cyber Cafe Sheet)
+              </button>
+            </div>
+          </div>
         </div>
 
-        {/* Action Button */}
         <button
           onClick={generatePrintableSheet}
           disabled={processing || !frontImg || !backImg}
@@ -260,12 +324,11 @@ export default function IdCardCropperPage() {
           {processing ? "शीट तैयार हो रही है..." : "🖨️ A4 PVC प्रिंट शीट तैयार करें"}
         </button>
 
-        {/* Result & Download */}
         {downloadUrl && (
           <div className="mt-6 p-4 rounded-xl bg-green-50 border border-green-200 text-center">
-            <p className="text-sm font-bold text-green-800">A4 प्रिंट शीट सफलतापूर्वक तैयार हो गई!</p>
+            <p className="text-sm font-bold text-green-800">A4 प्रिंट शीट तैयार है!</p>
             <p className="text-xs text-green-700 mt-1">
-              मानक 85.6mm × 54mm साइज़ — फोटो पेपर पर 100% स्केल पर सीधे प्रिंट करें।
+              {layoutMode === "single" ? "1 कार्ड" : "3 कार्ड्स"} लेआउट — सीधे 100% स्केल पर प्रिंट करें।
             </p>
             <a
               href={downloadUrl}
