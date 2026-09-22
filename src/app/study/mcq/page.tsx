@@ -86,7 +86,7 @@ function MCQPractice() {
       <main className="mx-auto max-w-3xl px-4 py-10">
         <div className="rounded-2xl border border-gray-200 bg-white p-8 text-center shadow-sm">
           <p className="text-sm font-semibold text-blue-600">
-            StudySetu MCQ Practice
+            Exam Sewa MCQ Practice
           </p>
 
           <h1 className="mt-2 text-3xl font-bold text-gray-900">

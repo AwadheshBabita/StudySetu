@@ -439,11 +439,11 @@ export default function ExamRequirementsPage() {
 
         <section className="mt-8 rounded-2xl border p-6">
           <h2 className="text-xl font-bold">
-            How StudySetu Checker Works
+            How Exam Sewa Checker Works
           </h2>
 
           <p className="mt-3 text-sm leading-6 text-gray-600 dark:text-gray-300">
-            StudySetu will maintain exam-specific requirements in a
+            Exam Sewa will maintain exam-specific requirements in a
             structured database. The checker can validate file format,
             file size and image dimensions. Only verified requirements
             should be published to students.

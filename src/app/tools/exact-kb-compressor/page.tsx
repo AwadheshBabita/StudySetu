@@ -187,7 +187,7 @@ export default function ExactKbCompressorPage() {
             </p>
             <a
               href={downloadUrl}
-              download="studysetu-compressed.jpg"
+              download="examsewa-compressed.jpg"
               className="inline-block mt-3 bg-green-600 text-white px-6 py-2.5 rounded-lg text-sm font-bold hover:bg-green-700 transition"
             >
               📥 डाउनलोड फोटो

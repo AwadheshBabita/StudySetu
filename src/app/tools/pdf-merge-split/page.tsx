@@ -273,7 +273,7 @@ export default function PdfMergeSplitPage() {
                 <p className="text-sm font-bold text-green-800">PDF सफलतापूर्वक जुड़ गई!</p>
                 <a
                   href={mergeDownloadUrl}
-                  download="studysetu-merged.pdf"
+                  download="examsewa-merged.pdf"
                   className="inline-block mt-3 bg-green-600 text-white px-6 py-2.5 rounded-lg text-sm font-bold hover:bg-green-700 transition"
                 >
                   📥 डाउनलोड Merged PDF
@@ -344,7 +344,7 @@ export default function PdfMergeSplitPage() {
                 <p className="text-sm font-bold text-green-800">पेज सफलतापूर्वक अलग कर दिए गए!</p>
                 <a
                   href={splitDownloadUrl}
-                  download="studysetu-split.pdf"
+                  download="examsewa-split.pdf"
                   className="inline-block mt-3 bg-green-600 text-white px-6 py-2.5 rounded-lg text-sm font-bold hover:bg-green-700 transition"
                 >
                   📥 डाउनलोड Split PDF

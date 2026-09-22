@@ -45,7 +45,7 @@ function MaterialContent() {
           </h2>
 
           <p className="mt-2 text-gray-600">
-            This section is ready for verified StudySetu content.
+            This section is ready for verified Exam Sewa content.
           </p>
 
           <div className="mt-6 flex flex-wrap gap-3">

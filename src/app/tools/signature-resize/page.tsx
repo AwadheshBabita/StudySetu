@@ -415,7 +415,7 @@ export default function SignatureResizePage() {
 
             <a
               href={downloadUrl}
-              download="studysetu-signature.jpg"
+              download="examsewa-signature.jpg"
               className="inline-block bg-green-600 text-white px-6 py-2.5 rounded-lg text-sm font-bold hover:bg-green-700 transition shadow-sm"
             >
               📥 डाउनलोड सटीक हस्ताक्षर

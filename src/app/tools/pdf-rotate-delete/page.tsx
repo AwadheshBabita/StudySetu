@@ -211,7 +211,7 @@ export default function PdfRotateDeletePage() {
             <p className="text-sm font-bold text-green-800">PDF सफलतापूर्वक तैयार हो गई!</p>
             <a
               href={downloadUrl}
-              download="studysetu-modified.pdf"
+              download="examsewa-modified.pdf"
               className="inline-block mt-3 bg-green-600 text-white px-6 py-2.5 rounded-lg text-sm font-bold hover:bg-green-700 transition"
             >
               📥 डाउनलोड PDF

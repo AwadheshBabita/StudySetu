@@ -163,7 +163,7 @@ export default function IdCardCropperPage() {
       ctx.font = "bold 32px sans-serif";
       ctx.textAlign = "center";
       ctx.fillText(
-        "StudySetu ID Card Sheet (300 DPI - Standard 85.6mm x 54mm PVC Size - Direct Print)",
+        "Exam Sewa ID Card Sheet (300 DPI - Standard 85.6mm x 54mm PVC Size - Direct Print)",
         canvas.width / 2,
         220
       );
@@ -332,7 +332,7 @@ export default function IdCardCropperPage() {
             </p>
             <a
               href={downloadUrl}
-              download="studysetu-pvc-id-sheet.jpg"
+              download="examsewa-pvc-id-sheet.jpg"
               className="inline-block mt-3 bg-green-600 text-white px-6 py-2.5 rounded-lg text-sm font-bold hover:bg-green-700 transition"
             >
               📥 डाउनलोड A4 प्रिंट शीट

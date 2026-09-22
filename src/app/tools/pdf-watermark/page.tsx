@@ -5,7 +5,7 @@ import { PDFDocument, rgb, degrees, StandardFonts } from "pdf-lib";
 
 export default function PdfWatermarkPage() {
   const [file, setFile] = useState<File | null>(null);
-  const [watermarkText, setWatermarkText] = useState<string>("StudySetu");
+  const [watermarkText, setWatermarkText] = useState<string>("Exam Sewa");
   const [fontSize, setFontSize] = useState<number>(48);
   const [opacity, setOpacity] = useState<number>(0.25);
   const [rotation, setRotation] = useState<number>(45);
@@ -105,7 +105,7 @@ export default function PdfWatermarkPage() {
               </label>
               <input
                 type="text"
-                placeholder="उदा. StudySetu / Confidential"
+                placeholder="उदा. Exam Sewa / Confidential"
                 value={watermarkText}
                 onChange={(e) => setWatermarkText(e.target.value)}
                 className="w-full border border-slate-300 p-2.5 rounded-lg text-sm bg-white"

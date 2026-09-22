@@ -42,7 +42,7 @@ function NotesContent() {
         <>
           <header className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
             <p className="text-sm font-semibold text-blue-600">
-              StudySetu Notes
+              Exam Sewa Notes
             </p>
 
             <h1 className="mt-2 text-3xl font-bold text-gray-900">

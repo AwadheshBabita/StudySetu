@@ -1,0 +1,675 @@
+"use client";
+
+import { useState, useRef, useEffect, ChangeEvent, MouseEvent, TouchEvent } from "react";
+import { PDFDocument } from "pdf-lib";
+
+interface CropRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export default function IdCardCropperPage() {
+  const [frontImgSrc, setFrontImgSrc] = useState<string | null>(null);
+  const [backImgSrc, setBackImgSrc] = useState<string | null>(null);
+
+  const [frontRotation, setFrontRotation] = useState<number>(0);
+  const [backRotation, setBackRotation] = useState<number>(0);
+
+  const [activeTab, setActiveTab] = useState<"front" | "back">("front");
+  const [layoutMode, setLayoutMode] = useState<"side-by-side" | "stack-fold">("side-by-side");
+
+  // Crop boxes (relative to natural image size)
+  const [frontCrop, setFrontCrop] = useState<CropRect | null>(null);
+  const [backCrop, setBackCrop] = useState<CropRect | null>(null);
+
+  // Active interaction for magnifying lens
+  const [isDraggingHandle, setIsDraggingHandle] = useState<string | null>(null);
+  const [magnifierPos, setMagnifierPos] = useState<{ x: number; y: number } | null>(null);
+
+  const [isProcessing, setIsProcessing] = useState<boolean>(false);
+  const [downloadJpgUrl, setDownloadJpgUrl] = useState<string | null>(null);
+  const [downloadPdfUrl, setDownloadPdfUrl] = useState<string | null>(null);
+
+  const imageRef = useRef<HTMLImageElement | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const magnifierCanvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  // Load and reset crops on upload
+  const handleUpload = (e: ChangeEvent<HTMLInputElement>, side: "front" | "back") => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const src = reader.result as string;
+      if (side === "front") {
+        setFrontImgSrc(src);
+        setFrontRotation(0);
+        setFrontCrop(null);
+        setActiveTab("front");
+      } else {
+        setBackImgSrc(src);
+        setBackRotation(0);
+        setBackCrop(null);
+        setActiveTab("back");
+      }
+      setDownloadJpgUrl(null);
+      setDownloadPdfUrl(null);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const rotateImage = (side: "front" | "back") => {
+    if (side === "front") {
+      setFrontRotation((prev) => (prev + 90) % 360);
+      setFrontCrop(null);
+    } else {
+      setBackRotation((prev) => (prev + 90) % 360);
+      setBackCrop(null);
+    }
+  };
+
+  // Default PVC Card Aspect Ratio: 85.6 / 54 = 1.585
+  const CARD_RATIO = 85.6 / 54.0;
+
+  const onImageLoad = () => {
+    if (!imageRef.current) return;
+    const img = imageRef.current;
+    const nw = img.naturalWidth;
+    const nh = img.naturalHeight;
+
+    let initW = nw * 0.85;
+    let initH = initW / CARD_RATIO;
+    if (initH > nh * 0.85) {
+      initH = nh * 0.85;
+      initW = initH * CARD_RATIO;
+    }
+    const initX = (nw - initW) / 2;
+    const initY = (nh - initH) / 2;
+
+    const initialCrop: CropRect = { x: initX, y: initY, w: initW, h: initH };
+    if (activeTab === "front" && !frontCrop) setFrontCrop(initialCrop);
+    if (activeTab === "back" && !backCrop) setBackCrop(initialCrop);
+  };
+
+  const currentCrop = activeTab === "front" ? frontCrop : backCrop;
+  const setCurrentCrop = (c: CropRect) => {
+    if (activeTab === "front") setFrontCrop(c);
+    else setBackCrop(c);
+  };
+
+  // Magnifying Glass Renderer
+  const updateMagnifier = (touchX: number, touchY: number, targetImgX: number, targetImgY: number) => {
+    setMagnifierPos({ x: touchX, y: touchY - 70 });
+    const mCanvas = magnifierCanvasRef.current;
+    const img = imageRef.current;
+    if (!mCanvas || !img) return;
+
+    const mCtx = mCanvas.getContext("2d");
+    if (!mCtx) return;
+
+    mCanvas.width = 120;
+    mCanvas.height = 120;
+
+    mCtx.imageSmoothingEnabled = true;
+    mCtx.imageSmoothingQuality = "high";
+    mCtx.clearRect(0, 0, 120, 120);
+
+    // 2.5x Zoom around handle point
+    const zoom = 2.5;
+    const sW = 120 / zoom;
+    const sH = 120 / zoom;
+    const sX = targetImgX - sW / 2;
+    const sY = targetImgY - sH / 2;
+
+    mCtx.drawImage(img, sX, sY, sW, sH, 0, 0, 120, 120);
+
+    // Crosshair in magnifier
+    mCtx.strokeStyle = "rgba(225, 29, 72, 0.8)";
+    mCtx.lineWidth = 1.5;
+    mCtx.beginPath();
+    mCtx.moveTo(60, 45);
+    mCtx.lineTo(60, 75);
+    mCtx.moveTo(45, 60);
+    mCtx.lineTo(75, 60);
+    mCtx.stroke();
+  };
+
+  // Handle Dragging
+  const handleStart = (handle: string, clientX: number, clientY: number) => {
+    setIsDraggingHandle(handle);
+  };
+
+  const handleMove = (clientX: number, clientY: number) => {
+    if (!isDraggingHandle || !currentCrop || !imageRef.current || !containerRef.current) return;
+
+    const img = imageRef.current;
+    const rect = img.getBoundingClientRect();
+    const scaleX = img.naturalWidth / rect.width;
+    const scaleY = img.naturalHeight / rect.height;
+
+    const curImgX = Math.max(0, Math.min(img.naturalWidth, (clientX - rect.left) * scaleX));
+    const curImgY = Math.max(0, Math.min(img.naturalHeight, (clientY - rect.top) * scaleY));
+
+    let { x, y, w, h } = currentCrop;
+
+    if (isDraggingHandle === "move") {
+      const halfW = w / 2;
+      const halfH = h / 2;
+      x = Math.max(0, Math.min(img.naturalWidth - w, curImgX - halfW));
+      y = Math.max(0, Math.min(img.naturalHeight - h, curImgY - halfH));
+    } else if (isDraggingHandle === "br") {
+      const targetW = Math.max(80, curImgX - x);
+      w = Math.min(img.naturalWidth - x, targetW);
+      h = w / CARD_RATIO;
+      if (y + h > img.naturalHeight) {
+        h = img.naturalHeight - y;
+        w = h * CARD_RATIO;
+      }
+      updateMagnifier(clientX - rect.left, clientY - rect.top, x + w, y + h);
+    } else if (isDraggingHandle === "tl") {
+      const newRight = x + w;
+      const newBottom = y + h;
+      w = Math.max(80, newRight - curImgX);
+      h = w / CARD_RATIO;
+      x = newRight - w;
+      y = newBottom - h;
+      if (x < 0) {
+        x = 0;
+        w = newRight;
+        h = w / CARD_RATIO;
+        y = newBottom - h;
+      }
+      if (y < 0) {
+        y = 0;
+        h = newBottom;
+        w = h * CARD_RATIO;
+        x = newRight - w;
+      }
+      updateMagnifier(clientX - rect.left, clientY - rect.top, x, y);
+    }
+
+    setCurrentCrop({ x, y, w, h });
+  };
+
+  const handleEnd = () => {
+    setIsDraggingHandle(null);
+    setMagnifierPos(null);
+  };
+
+  // Master Generator: 300 DPI Ultra HD Sheet (A4 = 2480 x 3508 px)
+  const generateUltraHdSheet = async () => {
+    if (!frontImgSrc || !backImgSrc) {
+      alert("कृपया दोनों (Front और Back) साइड अपलोड करें!");
+      return;
+    }
+    setIsProcessing(true);
+
+    try {
+      // 1. Render cropped images to memory
+      const getCroppedImage = async (src: string, rot: number, crop: CropRect | null): Promise<HTMLCanvasElement> => {
+        return new Promise((resolve) => {
+          const img = new Image();
+          img.crossOrigin = "anonymous";
+          img.onload = () => {
+            // Apply rotation first
+            const rCanvas = document.createElement("canvas");
+            const is90 = rot === 90 || rot === 270;
+            rCanvas.width = is90 ? img.height : img.width;
+            rCanvas.height = is90 ? img.width : img.height;
+            const rCtx = rCanvas.getContext("2d")!;
+            rCtx.translate(rCanvas.width / 2, rCanvas.height / 2);
+            rCtx.rotate((rot * Math.PI) / 180);
+            rCtx.drawImage(img, -img.width / 2, -img.height / 2);
+
+            // Now crop
+            const finalCrop = crop || { x: 0, y: 0, w: rCanvas.width, h: rCanvas.width / CARD_RATIO };
+            const cCanvas = document.createElement("canvas");
+            cCanvas.width = 1011; // 300 DPI standard 85.6mm
+            cCanvas.height = 638; // 300 DPI standard 54mm
+            const cCtx = cCanvas.getContext("2d")!;
+            cCtx.imageSmoothingEnabled = true;
+            cCtx.imageSmoothingQuality = "high";
+            cCtx.drawImage(
+              rCanvas,
+              finalCrop.x,
+              finalCrop.y,
+              finalCrop.w,
+              finalCrop.h,
+              0,
+              0,
+              1011,
+              638
+            );
+            resolve(cCanvas);
+          };
+          img.src = src;
+        });
+      };
+
+      const [frontCanvas, backCanvas] = await Promise.all([
+        getCroppedImage(frontImgSrc, frontRotation, frontCrop),
+        getCroppedImage(backImgSrc, backRotation, backCrop),
+      ]);
+
+      // 2. Master A4 Sheet Canvas
+      const a4Canvas = document.createElement("canvas");
+      a4Canvas.width = 2480;
+      a4Canvas.height = 3508;
+      const ctx = a4Canvas.getContext("2d")!;
+
+      // Pure White Background
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, 2480, 3508);
+
+      const cardW = 1011;
+      const cardH = 638;
+      const cornerRadius = 24;
+
+      const drawSmartCard = (cardCanvas: HTMLCanvasElement, x: number, y: number) => {
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(x + cornerRadius, y);
+        ctx.lineTo(x + cardW - cornerRadius, y);
+        ctx.quadraticCurveTo(x + cardW, y, x + cardW, y + cornerRadius);
+        ctx.lineTo(x + cardW, y + cardH - cornerRadius);
+        ctx.quadraticCurveTo(x + cardW, y + cardH, x + cardW - cornerRadius, y + cardH);
+        ctx.lineTo(x + cornerRadius, y + cardH);
+        ctx.quadraticCurveTo(x, y + cardH, x, y + cardH - cornerRadius);
+        ctx.lineTo(x, y + cornerRadius);
+        ctx.quadraticCurveTo(x, y, x + cornerRadius, y);
+        ctx.closePath();
+        ctx.clip();
+        ctx.drawImage(cardCanvas, x, y, cardW, cardH);
+        ctx.restore();
+
+        // 1px Ultra-light Cutting Guideline
+        ctx.save();
+        ctx.strokeStyle = "#cbd5e1";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.roundRect(x, y, cardW, cardH, cornerRadius);
+        ctx.stroke();
+        ctx.restore();
+      };
+
+      if (layoutMode === "side-by-side") {
+        // Horizontal side by side
+        const gap = 120;
+        const totalW = cardW * 2 + gap;
+        const startX = (2480 - totalW) / 2;
+        const startY = 320;
+
+        drawSmartCard(frontCanvas, startX, startY);
+        drawSmartCard(backCanvas, startX + cardW + gap, startY);
+
+        // Center Cut Guideline
+        ctx.save();
+        ctx.strokeStyle = "#e2e8f0";
+        ctx.setLineDash([12, 12]);
+        ctx.beginPath();
+        ctx.moveTo(startX + cardW + gap / 2, startY - 40);
+        ctx.lineTo(startX + cardW + gap / 2, startY + cardH + 40);
+        ctx.stroke();
+        ctx.restore();
+      } else {
+        // Vertical stack for easy center-folding
+        const startX = (2480 - cardW) / 2;
+        const startY = 320;
+
+        drawSmartCard(frontCanvas, startX, startY);
+        drawSmartCard(backCanvas, startX, startY + cardH + 10);
+
+        // Folding Dash Line between cards
+        ctx.save();
+        ctx.strokeStyle = "#94a3b8";
+        ctx.setLineDash([8, 8]);
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(startX - 30, startY + cardH + 5);
+        ctx.lineTo(startX + cardW + 30, startY + cardH + 5);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // 3. Export High Quality JPEG
+      const jpgBlob: Blob = await new Promise((res) => {
+        a4Canvas.toBlob((b) => res(b!), "image/jpeg", 0.98);
+      });
+      if (downloadJpgUrl) URL.revokeObjectURL(downloadJpgUrl);
+      setDownloadJpgUrl(URL.createObjectURL(jpgBlob));
+
+      // 4. Export 100% Scale Print-Ready A4 PDF
+      const pdfDoc = await PDFDocument.create();
+      const jpgBytes = await jpgBlob.arrayBuffer();
+      const embeddedJpg = await pdfDoc.embedJpg(jpgBytes);
+      // Standard ISO A4 Points: 595.28 x 841.89
+      const pdfPage = pdfDoc.addPage([595.28, 841.89]);
+      pdfPage.drawImage(embeddedJpg, {
+        x: 0,
+        y: 0,
+        width: 595.28,
+        height: 841.89,
+      });
+
+      const pdfBytes = await pdfDoc.save({ useObjectStreams: true });
+      const pdfBlob = new Blob([pdfBytes], { type: "application/pdf" });
+      if (downloadPdfUrl) URL.revokeObjectURL(downloadPdfUrl);
+      setDownloadPdfUrl(URL.createObjectURL(pdfBlob));
+
+    } catch (err) {
+      console.error(err);
+      alert("प्रिंट शीट तैयार करने में समस्या आई।");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-50/50 text-slate-800 py-8 px-4 sm:px-6 select-none">
+      <div className="max-w-2xl mx-auto space-y-6">
+        
+        {/* Header */}
+        <div className="text-center space-y-2">
+          <span className="inline-flex items-center gap-1.5 bg-rose-50 text-rose-700 text-xs px-3 py-1 rounded-full font-bold border border-rose-100">
+            <span className="w-2 h-2 rounded-full bg-rose-500"></span>
+            300 DPI Ultra HD • सटीक 85.6mm x 54mm PVC साइज़
+          </span>
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
+            ID Card / PVC Print Cropper
+          </h1>
+          <p className="text-xs sm:text-sm text-slate-500">
+            आधार, वोटर, पैन कार्ड को मैग्निफाइंग लेंस से सटीक क्रॉप करें और 1-क्लिक में प्रिंट शीट निकालें
+          </p>
+        </div>
+
+        {/* Upload Dual Section */}
+        <div className="grid grid-cols-2 gap-3">
+          {/* Front Upload */}
+          <div className="bg-white p-3 rounded-2xl border border-slate-200 shadow-xs space-y-2 text-center">
+            <div className="flex justify-between items-center">
+              <span className="text-xs font-bold text-slate-700">1. कार्ड फ़्रंट (Front)</span>
+              {frontImgSrc && (
+                <button
+                  type="button"
+                  onClick={() => rotateImage("front")}
+                  className="text-[11px] font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 px-2 py-0.5 rounded-md transition"
+                >
+                  🔄 घुमाएँ 90°
+                </button>
+              )}
+            </div>
+            <label className="block border-2 border-dashed border-slate-200 hover:border-rose-400 rounded-xl p-3 cursor-pointer bg-slate-50/50 transition">
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) => handleUpload(e, "front")}
+                className="sr-only"
+              />
+              <span className="text-xs font-semibold text-slate-600 block truncate">
+                {frontImgSrc ? "✅ फ़्रंट अपलोड हो गया" : "➕ फ़्रंट अपलोड करें"}
+              </span>
+            </label>
+          </div>
+
+          {/* Back Upload */}
+          <div className="bg-white p-3 rounded-2xl border border-slate-200 shadow-xs space-y-2 text-center">
+            <div className="flex justify-between items-center">
+              <span className="text-xs font-bold text-slate-700">2. कार्ड बैक (Back)</span>
+              {backImgSrc && (
+                <button
+                  type="button"
+                  onClick={() => rotateImage("back")}
+                  className="text-[11px] font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 px-2 py-0.5 rounded-md transition"
+                >
+                  🔄 घुमाएँ 90°
+                </button>
+              )}
+            </div>
+            <label className="block border-2 border-dashed border-slate-200 hover:border-rose-400 rounded-xl p-3 cursor-pointer bg-slate-50/50 transition">
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) => handleUpload(e, "back")}
+                className="sr-only"
+              />
+              <span className="text-xs font-semibold text-slate-600 block truncate">
+                {backImgSrc ? "✅ बैक अपलोड हो गया" : "➕ बैक अपलोड करें"}
+              </span>
+            </label>
+          </div>
+        </div>
+
+        {/* Tab Switcher for Active Cropper */}
+        {(frontImgSrc || backImgSrc) && (
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setActiveTab("front")}
+              disabled={!frontImgSrc}
+              className={`flex-1 py-2 text-xs font-bold rounded-xl border transition ${
+                activeTab === "front"
+                  ? "bg-rose-600 text-white border-rose-600 shadow-sm"
+                  : "bg-white text-slate-600 border-slate-200 disabled:opacity-40"
+              }`}
+            >
+              फ़्रंट (Front) सलेक्शन सेट करें
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("back")}
+              disabled={!backImgSrc}
+              className={`flex-1 py-2 text-xs font-bold rounded-xl border transition ${
+                activeTab === "back"
+                  ? "bg-rose-600 text-white border-rose-600 shadow-sm"
+                  : "bg-white text-slate-600 border-slate-200 disabled:opacity-40"
+              }`}
+            >
+              बैक (Back) सलेक्शन सेट करें
+            </button>
+          </div>
+        )}
+
+        {/* Cropper Work Area with Lens */}
+        {(activeTab === "front" ? frontImgSrc : backImgSrc) && (
+          <div className="bg-white p-4 rounded-3xl border border-slate-200 shadow-sm space-y-3">
+            <div className="flex justify-between items-center text-xs text-slate-500 font-medium">
+              <span>🔍 किनारों को खींचकर कार्ड पर सटीक फ़िट करें</span>
+              <span className="text-rose-600 font-bold">मैग्नीफायर लेंस एक्टिव</span>
+            </div>
+
+            <div
+              ref={containerRef}
+              className="relative overflow-hidden rounded-2xl bg-slate-950 flex items-center justify-center min-h-[260px] touch-none"
+              onMouseMove={(e) => handleMove(e.clientX, e.clientY)}
+              onMouseUp={handleEnd}
+              onTouchMove={(e) => handleMove(e.touches[0].clientX, e.touches[0].clientY)}
+              onTouchEnd={handleEnd}
+            >
+              <img
+                ref={imageRef}
+                src={activeTab === "front" ? frontImgSrc! : backImgSrc!}
+                alt="Crop Target"
+                onLoad={onImageLoad}
+                style={{
+                  transform: `rotate(${activeTab === "front" ? frontRotation : backRotation}deg)`,
+                }}
+                className="max-h-[380px] w-auto object-contain pointer-events-none transition-transform"
+              />
+
+              {/* Responsive Crop Box Overlay */}
+              {currentCrop && imageRef.current && (() => {
+                const img = imageRef.current;
+                const rect = img.getBoundingClientRect();
+                const containerRect = containerRef.current?.getBoundingClientRect();
+                if (!containerRect) return null;
+
+                const offsetX = rect.left - containerRect.left;
+                const offsetY = rect.top - containerRect.top;
+                const scaleX = rect.width / img.naturalWidth;
+                const scaleY = rect.height / img.naturalHeight;
+
+                const boxLeft = offsetX + currentCrop.x * scaleX;
+                const boxTop = offsetY + currentCrop.y * scaleY;
+                const boxWidth = currentCrop.w * scaleX;
+                const boxHeight = currentCrop.h * scaleY;
+
+                return (
+                  <div
+                    style={{
+                      left: `${boxLeft}px`,
+                      top: `${boxTop}px`,
+                      width: `${boxWidth}px`,
+                      height: `${boxHeight}px`,
+                    }}
+                    className="absolute border-2 border-rose-500 bg-rose-500/10 cursor-move shadow-[0_0_0_9999px_rgba(0,0,0,0.55)] rounded-lg"
+                    onMouseDown={(e) => {
+                      e.stopPropagation();
+                      handleStart("move", e.clientX, e.clientY);
+                    }}
+                    onTouchStart={(e) => {
+                      e.stopPropagation();
+                      handleStart("move", e.touches[0].clientX, e.touches[0].clientY);
+                    }}
+                  >
+                    {/* Clean Touch Corner Grips - NO TL/BR TEXT */}
+                    <div
+                      onMouseDown={(e) => {
+                        e.stopPropagation();
+                        handleStart("tl", e.clientX, e.clientY);
+                      }}
+                      onTouchStart={(e) => {
+                        e.stopPropagation();
+                        handleStart("tl", e.touches[0].clientX, e.touches[0].clientY);
+                      }}
+                      className="absolute -top-3 -left-3 w-6 h-6 rounded-full bg-white border-2 border-rose-600 shadow-md cursor-nwse-resize active:scale-125 transition-transform"
+                    />
+                    <div
+                      onMouseDown={(e) => {
+                        e.stopPropagation();
+                        handleStart("br", e.clientX, e.clientY);
+                      }}
+                      onTouchStart={(e) => {
+                        e.stopPropagation();
+                        handleStart("br", e.touches[0].clientX, e.touches[0].clientY);
+                      }}
+                      className="absolute -bottom-3 -right-3 w-6 h-6 rounded-full bg-white border-2 border-rose-600 shadow-md cursor-nwse-resize active:scale-125 transition-transform"
+                    />
+                  </div>
+                );
+              })()}
+
+              {/* Floating Magnifying Lens */}
+              <div
+                style={{
+                  display: magnifierPos ? "block" : "none",
+                  left: magnifierPos ? `${magnifierPos.x - 60}px` : "0px",
+                  top: magnifierPos ? `${magnifierPos.y - 60}px` : "0px",
+                }}
+                className="absolute pointer-events-none z-30 rounded-full border-2 border-rose-500 bg-white shadow-2xl overflow-hidden"
+              >
+                <canvas ref={magnifierCanvasRef} className="w-[120px] h-[120px]" />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Layout & Generation Options */}
+        <div className="bg-white p-5 sm:p-6 rounded-3xl border border-slate-200/80 shadow-sm space-y-4">
+          <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+            प्रिंटिंग लेआउट चुनें:
+          </label>
+          <div className="grid grid-cols-2 gap-2.5">
+            <button
+              type="button"
+              onClick={() => setLayoutMode("side-by-side")}
+              className={`p-3 rounded-2xl border text-center transition flex flex-col items-center justify-center ${
+                layoutMode === "side-by-side"
+                  ? "bg-rose-600 text-white border-rose-600 shadow-sm ring-2 ring-rose-200"
+                  : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+              }`}
+            >
+              <span className="text-xs font-extrabold">साइड-बाय-साइड (Side-by-Side)</span>
+              <span className={`text-[10px] mt-0.5 ${layoutMode === "side-by-side" ? "text-rose-100" : "text-slate-400"}`}>
+                अलग-अलग काटकर आगे-पीछे चिपकाने के लिए
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setLayoutMode("stack-fold")}
+              className={`p-3 rounded-2xl border text-center transition flex flex-col items-center justify-center ${
+                layoutMode === "stack-fold"
+                  ? "bg-rose-600 text-white border-rose-600 shadow-sm ring-2 ring-rose-200"
+                  : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+              }`}
+            >
+              <span className="text-xs font-extrabold">सेंटर-फ़ोल्ड (Stack & Fold)</span>
+              <span className={`text-[10px] mt-0.5 ${layoutMode === "stack-fold" ? "text-rose-100" : "text-slate-400"}`}>
+                बीच से मोड़कर सीधे लेमिनेशन पाउच में डालने के लिए
+              </span>
+            </button>
+          </div>
+
+          {/* Action Button */}
+          <button
+            type="button"
+            onClick={generateUltraHdSheet}
+            disabled={!frontImgSrc || !backImgSrc || isProcessing}
+            className="w-full py-4 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white font-bold rounded-2xl text-sm shadow-md transition flex items-center justify-center gap-2 cursor-pointer active:scale-[0.99]"
+          >
+            {isProcessing ? (
+              <span className="flex items-center gap-2">
+                <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                <span>300 DPI A4 शीट तैयार हो रही है...</span>
+              </span>
+            ) : (
+              <span>🖨️ A4 Ultra HD प्रिंट शीट तैयार करें</span>
+            )}
+          </button>
+        </div>
+
+        {/* Dual High Quality Download Card */}
+        {(downloadJpgUrl || downloadPdfUrl) && (
+          <div className="bg-white rounded-3xl p-5 sm:p-6 border border-emerald-200 shadow-sm space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="font-bold text-slate-900 text-sm sm:text-base">
+                  प्रिंट शीट सफलतापूर्वक तैयार है!
+                </h3>
+                <p className="text-xs text-slate-500">
+                  300 DPI A4 शीट • सटीक 85.6mm x 54mm PVC साइज़
+                </p>
+              </div>
+              <span className="text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200 text-xs font-bold">
+                100% प्रिंट रेडी
+              </span>
+            </div>
+
+            <div className="pt-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {downloadPdfUrl && (
+                <a
+                  href={downloadPdfUrl}
+                  download="PVC-Card-Print-A4.pdf"
+                  className="py-3.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-center text-sm shadow-sm transition flex items-center justify-center gap-2"
+                >
+                  📄 डाउनलोड A4 PDF (सटीक प्रिंट स्केल)
+                </a>
+              )}
+              {downloadJpgUrl && (
+                <a
+                  href={downloadJpgUrl}
+                  download="PVC-Card-Print-Sheet.jpg"
+                  className="py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-center text-sm shadow-sm transition flex items-center justify-center gap-2"
+                >
+                  🖼️ डाउनलोड Ultra HD JPG
+                </a>
+              )}
+            </div>
+          </div>
+        )}
+
+      </div>
+    </div>
+  );
+}

@@ -401,7 +401,7 @@ export default function DocumentScannerPage() {
 
       const link = document.createElement("a");
       link.href = url;
-      link.download = "studysetu-scanned-doc.pdf";
+      link.download = "examsewa-scanned-doc.pdf";
       link.click();
     } catch (err) {
       console.error(err);
@@ -589,7 +589,7 @@ export default function DocumentScannerPage() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <a
                     href={jpgDownloadUrl}
-                    download="studysetu-scanned-doc.jpg"
+                    download="examsewa-scanned-doc.jpg"
                     className="flex items-center justify-center space-x-2 bg-emerald-600 text-white font-bold py-3.5 px-4 rounded-xl hover:bg-emerald-700 transition text-sm shadow-sm"
                   >
                     <span>🖼️</span>
