@@ -1,4 +1,6 @@
 import Header from "@/components/Header";
+import Footer from "@/components/Footer";
+import PwaInstallPrompt from "@/components/PwaInstallPrompt";
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
@@ -45,7 +47,10 @@ export default function RootLayout({
   return (
     <html lang="hi">
       <body className={inter.className}>
-        <Header />{children}</body>
+        <Header />{children}
+        <Footer />
+        <PwaInstallPrompt />
+      </body>
     </html>
   );
 }
