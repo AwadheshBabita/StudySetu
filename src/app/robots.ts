@@ -6,6 +6,6 @@ export default function robots(): MetadataRoute.Robots {
       userAgent: '*',
       allow: '/',
     },
-    sitemap: 'http://129.154.228.242:3000/sitemap.xml',
+    sitemap: 'https://examsewa.online/sitemap.xml',
   };
 }
