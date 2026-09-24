@@ -13,7 +13,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     'id-card-joiner',
     'photo-resize',
     'signature-resize',
-    'exact-kb-compressor',
+    'pdf-to-image',
     'exact-pixel-resize',
     'document-scanner',
     'id-card-cropper',

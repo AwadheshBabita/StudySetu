@@ -1,473 +1,944 @@
 'use client';
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import FaqSection from '@/components/FaqSection';
+import Link from 'next/link';
+import jsPDF from 'jspdf';
+
+// बाइनरी स्तर पर सटीक DPI (300 आदि) और सुरक्षित KB पैडिंग इंजेक्ट करने वाला मास्टर फ़ंक्शन
+function buildAccurateJpeg(rawBase64: string, dpi: number, targetBytes: number): string {
+  const pureBase64 = rawBase64.replace(/^data:image\/jpeg;base64,/, '');
+  const rawBinary = atob(pureBase64);
+  const rawLen = rawBinary.length;
+  const rawBytes = new Uint8Array(rawLen);
+  for (let i = 0; i < rawLen; i++) {
+    rawBytes[i] = rawBinary.charCodeAt(i);
+  }
+
+  // 18-बाइट मानक JFIF हेडर (विंडोज़ और सरकारी पोर्टल के लिए 100% मान्य)
+  const jfifHeader = new Uint8Array([
+    0xff, 0xe0, // APP0 Marker
+    0x00, 0x10, // Length = 16 bytes
+    0x4a, 0x46, 0x49, 0x46, 0x00, // "JFIF\0"
+    0x01, 0x01, // Version 1.1
+    0x01,       // 1 = Dots Per Inch (DPI)
+    (dpi >> 8) & 0xff, dpi & 0xff, // X DPI
+    (dpi >> 8) & 0xff, dpi & 0xff, // Y DPI
+    0x00, 0x00  // Thumbnail size = 0
+  ]);
+
+  // पुराना हेडर हटाकर बॉडी निकालना
+  let bodyStart = 2; // FF D8 के बाद
+  if (rawBytes[2] === 0xff && (rawBytes[3] === 0xe0 || rawBytes[3] === 0xe1)) {
+    const blockLen = (rawBytes[4] << 8) + rawBytes[5];
+    bodyStart = 4 + blockLen;
+  }
+
+  const bodyBytes = rawBytes.slice(bodyStart);
+
+  // टारगेट KB के लिए सुरक्षित JPEG Comment (0xFF 0xFE) पैडिंग
+  let paddingChunk = new Uint8Array(0);
+  const currentTotal = 2 + jfifHeader.length + bodyBytes.length;
+  if (currentTotal < targetBytes) {
+    const needed = targetBytes - currentTotal;
+    if (needed > 4) {
+      const padLen = Math.min(65533, needed - 2);
+      paddingChunk = new Uint8Array(padLen + 2);
+      paddingChunk[0] = 0xff;
+      paddingChunk[1] = 0xfe; // COM Marker
+      paddingChunk[2] = (padLen >> 8) & 0xff;
+      paddingChunk[3] = padLen & 0xff;
+      for (let p = 4; p < padLen + 2; p++) {
+        paddingChunk[p] = 0x20; // Safe Space Filler
+      }
+    }
+  }
+
+  // फाइनल बाइनरी जोड़ना: SOI + JFIF + Padding + Body
+  const finalLen = 2 + jfifHeader.length + paddingChunk.length + bodyBytes.length;
+  const finalBytes = new Uint8Array(finalLen);
+  finalBytes[0] = 0xff;
+  finalBytes[1] = 0xd8; // SOI
+  finalBytes.set(jfifHeader, 2);
+  finalBytes.set(paddingChunk, 2 + jfifHeader.length);
+  finalBytes.set(bodyBytes, 2 + jfifHeader.length + paddingChunk.length);
+
+  let binaryStr = '';
+  const chunk = 8192;
+  for (let i = 0; i < finalLen; i += chunk) {
+    binaryStr += String.fromCharCode.apply(null, Array.from(finalBytes.subarray(i, i + chunk)));
+  }
+
+  return 'data:image/jpeg;base64,' + btoa(binaryStr);
+}
 
 export default function PhotoNameDatePage() {
+  const [sizeMode, setSizeMode] = useState<'default' | 'custom'>('default');
+
+  // कस्टम साइज़ इनपुट्स
+  const [customUnit, setCustomUnit] = useState<'cm' | 'mm' | 'px' | 'inch'>('cm');
+  const [cmWidthStr, setCmWidthStr] = useState<string>('3.5');
+  const [cmHeightStr, setCmHeightStr] = useState<string>('4.5');
+  const [mmWidthStr, setMmWidthStr] = useState<string>('35');
+  const [mmHeightStr, setMmHeightStr] = useState<string>('45');
+  const [pxWidthStr, setPxWidthStr] = useState<string>('350');
+  const [pxHeightStr, setPxHeightStr] = useState<string>('450');
+  const [inchWidthStr, setInchWidthStr] = useState<string>('1.38');
+  const [inchHeightStr, setInchHeightStr] = useState<string>('1.77');
+  const [dpiStr, setDpiStr] = useState<string>('300');
+
+  // इमेज व ट्रांसफॉर्म स्टेट्स
   const [imageSrc, setImageSrc] = useState<string | null>(null);
-
-  // फॉर्म इनपुट्स
-  const [candidateName, setCandidateName] = useState<string>('RAHUL SHARMA');
-  const [dateOfPhoto, setDateOfPhoto] = useState<string>('');
-
-  // अलाइनमेंट और स्टाइल
-  const [zoom, setZoom] = useState<number>(1.0);
   const [rotation, setRotation] = useState<number>(0);
-  const [offset, setOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [zoomLevel, setZoomLevel] = useState<number>(1);
+  const [panOffset, setPanOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState<boolean>(false);
-  const [dragStart, setDragStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
-  const [targetKb, setTargetKb] = useState<number>(35);
+  const dragStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
+  // नाम और तारीख
+  const [includeNameDate, setIncludeNameDate] = useState<boolean>(true);
+  const [userName, setUserName] = useState<string>('YOUR NAME');
+  const [dateText, setDateText] = useState<string>('DOP: 23/09/2026');
+  const [fontSize, setFontSize] = useState<number>(16);
+
+  // ब्राइटनेस व कंट्रास्ट
+  const [brightness, setBrightness] = useState<number>(100);
+  const [contrast, setContrast] = useState<number>(100);
+
+  // KB नियंत्रण (10 से 200 KB)
+  const [targetKb, setTargetKb] = useState<number>(50);
+  const [outputUrl, setOutputUrl] = useState<string | null>(null);
+  const [outputKb, setOutputKb] = useState<number>(0);
+  const [isProcessing, setIsProcessing] = useState<boolean>(false);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
-  const galleryInputRef = useRef<HTMLInputElement>(null);
-  const loadedImgRef = useRef<HTMLImageElement | null>(null);
-  const previewCanvasRef = useRef<HTMLCanvasElement>(null);
+  const cachedImgRef = useRef<HTMLImageElement | null>(null);
+  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  useEffect(() => {
-    const today = new Date();
-    const dd = String(today.getDate()).padStart(2, '0');
-    const mm = String(today.getMonth() + 1).padStart(2, '0');
-    const yyyy = today.getFullYear();
-    setDateOfPhoto(`${dd}/${mm}/${yyyy}`);
-  }, []);
-
-  const dopFaqs = [
-    {
-      q: "फोटो पर नाम और तारीख (DOP) लिखना क्यों जरूरी है?",
-      a: "SSC (CGL, CHSL, GD), UPSC, रेलवे और कई राज्य पुलिस भर्तियों में स्पष्ट नियम होता है कि फोटो पर उम्मीदवार का नाम और फोटो खिंचवाने की तारीख (Date of Photo - DOP) लिखी होनी चाहिए, अन्यथा फॉर्म रिजेक्ट हो जाता है।"
-    },
-    {
-      q: "क्या यह टूल 300 DPI प्रिंटिंग और 4x6 शीट सपोर्ट करता है?",
-      a: "हाँ, आप ऑनलाइन फॉर्म के लिए 20KB-50KB का साइज भी डाउनलोड कर सकते हैं और स्टूडियो प्रिंटिंग हेतु 300 DPI HD फोटो या 6/8 फोटो वाली 4x6 इंच प्रिंटेबल शीट भी 1-क्लिक में पा सकते हैं।"
-    },
-    {
-      q: "क्या मोबाइल कैमरे से तुरंत फोटो खींचकर नाम-डेट जोड़ सकते हैं?",
-      a: "हाँ, 'कैमरा खोलें' बटन दबाकर आप सीधे लाइव फोटो खींच सकते हैं, चेहरे को ज़ूम/ड्रैग करके सेट कर सकते हैं और नीचे अपना नाम व तारीख स्टैम्प कर सकते हैं।"
-    },
-    {
-      q: "क्या मेरा डेटा सुरक्षित है?",
-      a: "यह टूल 100% क्लाइंट-साइड (ब्राउज़र के अंदर) प्रोसेस होता है। आपकी फोटो या नाम किसी बाहरी सर्वर पर अपलोड नहीं होता।"
-    }
-  ];
-
-  const handleImageFile = (file: File | undefined) => {
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      const src = reader.result as string;
-      const img = new Image();
-      img.src = src;
-      img.onload = () => {
-        loadedImgRef.current = img;
-        setImageSrc(src);
-        setZoom(1.0);
-        setRotation(0);
-        setOffset({ x: 0, y: 0 });
+  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const dataUri = ev.target?.result as string;
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => {
+          cachedImgRef.current = img;
+          setImageSrc(dataUri);
+          setRotation(0);
+          setZoomLevel(1);
+          setPanOffset({ x: 0, y: 0 });
+        };
+        img.src = dataUri;
       };
-    };
-    reader.readAsDataURL(file);
+      reader.readAsDataURL(file);
+      e.target.value = '';
+    }
   };
 
-  const drawPhotoOnCanvas = useCallback((ctx: CanvasRenderingContext2D, width: number, height: number) => {
-    const img = loadedImgRef.current;
-    if (!img) return;
-
-    ctx.fillStyle = '#FFFFFF';
-    ctx.fillRect(0, 0, width, height);
-
-    ctx.save();
-    ctx.translate(width / 2 + (offset.x * width) / 350, (height * 0.42) + (offset.y * height) / 450);
-    ctx.rotate((rotation * Math.PI) / 180);
-    ctx.scale(zoom, zoom);
-
-    const imgAspect = img.width / img.height;
-    let renderW = width * 1.1;
-    let renderH = renderW / imgAspect;
-
-    ctx.drawImage(img, -renderW / 2, -renderH / 2, renderW, renderH);
-    ctx.restore();
-
-    const stripHeight = height * 0.21;
-    const stripY = height - stripHeight;
-
-    ctx.fillStyle = '#FFFFFF';
-    ctx.fillRect(0, stripY, width, stripHeight);
-
-    ctx.strokeStyle = '#CBD5E1';
-    ctx.lineWidth = Math.max(1, Math.round(width / 350));
-    ctx.beginPath();
-    ctx.moveTo(0, stripY);
-    ctx.lineTo(width, stripY);
-    ctx.stroke();
-
-    ctx.fillStyle = '#000000';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-
-    const nameFontSize = Math.round(width * 0.072);
-    const dateFontSize = Math.round(width * 0.062);
-
-    ctx.font = `bold ${nameFontSize}px Arial, sans-serif`;
-    const cleanName = candidateName.trim().toUpperCase() || 'YOUR NAME';
-    ctx.fillText(cleanName, width / 2, stripY + stripHeight * 0.35);
-
-    ctx.font = `bold ${dateFontSize}px Arial, sans-serif`;
-    const cleanDate = dateOfPhoto.trim() ? `DOP: ${dateOfPhoto.trim()}` : 'DOP: DD/MM/YYYY';
-    ctx.fillText(cleanDate, width / 2, stripY + stripHeight * 0.74);
-  }, [candidateName, dateOfPhoto, zoom, rotation, offset]);
-
-  useEffect(() => {
+  const handlePointerDown = (clientX: number, clientY: number) => {
     if (!imageSrc) return;
-    const canvas = previewCanvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    canvas.width = 350;
-    canvas.height = 450;
-    drawPhotoOnCanvas(ctx, 350, 450);
-  }, [imageSrc, drawPhotoOnCanvas]);
-
-  const handlePointerDown = (e: React.PointerEvent) => {
     setIsDragging(true);
-    setDragStart({ x: e.clientX - offset.x, y: e.clientY - offset.y });
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    dragStartRef.current = {
+      x: clientX - panOffset.x,
+      y: clientY - panOffset.y
+    };
   };
 
-  const handlePointerMove = (e: React.PointerEvent) => {
+  const handlePointerMove = (clientX: number, clientY: number) => {
     if (!isDragging) return;
-    setOffset({
-      x: e.clientX - dragStart.x,
-      y: e.clientY - dragStart.y,
+    setPanOffset({
+      x: clientX - dragStartRef.current.x,
+      y: clientY - dragStartRef.current.y
     });
   };
 
-  const handlePointerUp = () => setIsDragging(false);
+  const handlePointerUp = () => {
+    setIsDragging(false);
+  };
 
-  const downloadOnlineFormJpg = () => {
+  // पिक्सल और डायमेंशन की सटीक गणना (DPI के आधार पर)
+  const getCalculatedDimensions = useCallback((): { width: number; height: number; label: string; currentDpi: number } => {
+    if (sizeMode === 'default') {
+      // 3.5 x 4.5 cm @ 300 DPI = 413 x 531 px (मानक सरकारी)
+      const wPx = Math.round((3.5 / 2.54) * 300);
+      const hPx = Math.round((4.5 / 2.54) * 300);
+      return { width: wPx, height: hPx, label: 'पासपोर्ट (3.5×4.5 cm @ 300 DPI)', currentDpi: 300 };
+    }
+
+    const currentDpi = Math.max(72, Math.min(600, parseInt(dpiStr, 10) || 300));
+
+    if (customUnit === 'cm') {
+      const parsedW = parseFloat(cmWidthStr) || 3.5;
+      const parsedH = parseFloat(cmHeightStr) || 4.5;
+      const wPx = Math.max(40, Math.round((parsedW / 2.54) * currentDpi));
+      const hPx = Math.max(40, Math.round((parsedH / 2.54) * currentDpi));
+      return { width: wPx, height: hPx, label: `${parsedW}×${parsedH} cm (${currentDpi} DPI)`, currentDpi };
+    } else if (customUnit === 'mm') {
+      const parsedW = parseFloat(mmWidthStr) || 35;
+      const parsedH = parseFloat(mmHeightStr) || 45;
+      const wPx = Math.max(40, Math.round((parsedW / 25.4) * currentDpi));
+      const hPx = Math.max(40, Math.round((parsedH / 25.4) * currentDpi));
+      return { width: wPx, height: hPx, label: `${parsedW}×${parsedH} mm (${currentDpi} DPI)`, currentDpi };
+    } else if (customUnit === 'inch') {
+      const parsedW = parseFloat(inchWidthStr) || 1.38;
+      const parsedH = parseFloat(inchHeightStr) || 1.77;
+      const wPx = Math.max(40, Math.round(parsedW * currentDpi));
+      const hPx = Math.max(40, Math.round(parsedH * currentDpi));
+      return { width: wPx, height: hPx, label: `${parsedW}×${parsedH} inch (${currentDpi} DPI)`, currentDpi };
+    } else {
+      const parsedW = Math.max(40, parseInt(pxWidthStr, 10) || 350);
+      const parsedH = Math.max(40, parseInt(pxHeightStr, 10) || 450);
+      return { width: parsedW, height: parsedH, label: `${parsedW}×${parsedH} px (${currentDpi} DPI)`, currentDpi };
+    }
+  }, [sizeMode, customUnit, cmWidthStr, cmHeightStr, mmWidthStr, mmHeightStr, inchWidthStr, inchHeightStr, pxWidthStr, pxHeightStr, dpiStr]);
+
+  // सटीक पिक्सल कैनवास रेंडरर
+  const renderCanvas = useCallback((): HTMLCanvasElement | null => {
+    const img = cachedImgRef.current;
+    if (!img) return null;
+
+    const { width: outW, height: outH } = getCalculatedDimensions();
+
     const canvas = document.createElement('canvas');
-    canvas.width = 420;
-    canvas.height = 540;
+    canvas.width = outW;
+    canvas.height = outH;
     const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    if (!ctx) return null;
 
-    drawPhotoOnCanvas(ctx, 420, 540);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
 
-    let minQ = 0.15;
-    let maxQ = 0.95;
-    let bestUrl = canvas.toDataURL('image/jpeg', 0.85);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, outW, outH);
 
-    for (let i = 0; i < 6; i++) {
+    ctx.save();
+    ctx.translate(outW / 2 + panOffset.x, outH / 2 + panOffset.y);
+    ctx.rotate((rotation * Math.PI) / 180);
+    ctx.scale(zoomLevel, zoomLevel);
+
+    const imgAspect = img.width / img.height;
+    const boxAspect = outW / outH;
+    let dW, dH;
+
+    if (imgAspect > boxAspect) {
+      dH = outH;
+      dW = dH * imgAspect;
+    } else {
+      dW = outW;
+      dH = dW / imgAspect;
+    }
+
+    ctx.filter = `brightness(${brightness}%) contrast(${contrast}%)`;
+    ctx.drawImage(img, -dW / 2, -dH / 2, dW, dH);
+    ctx.filter = 'none';
+    ctx.restore();
+
+    // नाम और तारीख पट्टी
+    if (includeNameDate) {
+      const stripH = Math.round(outH * 0.22);
+      const stripY = outH - stripH;
+
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, stripY, outW, stripH);
+
+      ctx.strokeStyle = '#000000';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(0, stripY);
+      ctx.lineTo(outW, stripY);
+      ctx.stroke();
+
+      ctx.fillStyle = '#000000';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+
+      const scaleFont = outW / 350;
+      const calculatedFontSize = Math.round(fontSize * scaleFont);
+      ctx.font = `bold ${calculatedFontSize}px sans-serif`;
+
+      if (userName && dateText) {
+        ctx.fillText(userName.toUpperCase(), outW / 2, stripY + stripH * 0.35);
+        ctx.font = `bold ${Math.round(calculatedFontSize * 0.88)}px sans-serif`;
+        ctx.fillText(dateText, outW / 2, stripY + stripH * 0.72);
+      } else if (userName) {
+        ctx.fillText(userName.toUpperCase(), outW / 2, stripY + stripH / 2);
+      } else if (dateText) {
+        ctx.fillText(dateText, outW / 2, stripY + stripH / 2);
+      }
+    }
+
+    // बाहरी काला बॉर्डर
+    ctx.strokeStyle = '#000000';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(0, 0, outW, outH);
+
+    return canvas;
+  }, [getCalculatedDimensions, rotation, zoomLevel, panOffset, brightness, contrast, includeNameDate, fontSize, userName, dateText]);
+
+  // सटीक बाइनरी DPI और सेफ पैडिंग इंजेक्शन
+  const processPhoto = useCallback(() => {
+    if (!cachedImgRef.current) return;
+    setIsProcessing(true);
+
+    const canvas = renderCanvas();
+    if (!canvas) {
+      setIsProcessing(false);
+      return;
+    }
+
+    const { currentDpi } = getCalculatedDimensions();
+    const targetBytes = targetKb * 1024;
+    let minQ = 0.02;
+    let maxQ = 0.99;
+    let bestQ = 0.85;
+    let bestData = canvas.toDataURL('image/jpeg', bestQ);
+
+    for (let step = 0; step < 9; step++) {
       const midQ = (minQ + maxQ) / 2;
-      const url = canvas.toDataURL('image/jpeg', midQ);
-      const curKb = (url.length * 3) / 4 / 1024;
+      const dUrl = canvas.toDataURL('image/jpeg', midQ);
+      const head = 'data:image/jpeg;base64,';
+      const bytes = Math.round(((dUrl.length - head.length) * 3) / 4);
 
-      if (curKb > targetKb) {
+      if (bytes > targetBytes) {
         maxQ = midQ;
       } else {
-        bestUrl = url;
+        bestQ = midQ;
+        bestData = dUrl;
         minQ = midQ;
       }
     }
 
-    const a = document.createElement('a');
-    a.download = `${candidateName.replace(/\s+/g, '_')}_photo_${targetKb}KB.jpg`;
-    a.href = bestUrl;
-    a.click();
-  };
+    // JPEG में सटीक JFIF DPI और सेफ पैडिंग इंजेक्ट करना
+    const finalData = buildAccurateJpeg(bestData, currentDpi, targetBytes);
+    const pure = finalData.replace(/^data:image\/jpeg;base64,/, '');
+    const actualKb = Math.round((pure.length * 3) / 4 / 1024);
 
-  const downloadStudioSingleJpg = () => {
-    const canvas = document.createElement('canvas');
-    canvas.width = 1050;
-    canvas.height = 1350;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    setOutputUrl(finalData);
+    setOutputKb(actualKb);
+    setIsProcessing(false);
+  }, [targetKb, renderCanvas, getCalculatedDimensions]);
 
-    drawPhotoOnCanvas(ctx, 1050, 1350);
-
-    const a = document.createElement('a');
-    a.download = `${candidateName.replace(/\s+/g, '_')}_studio_300dpi.jpg`;
-    a.href = canvas.toDataURL('image/jpeg', 0.98);
-    a.click();
-  };
-
-  const download4x6PrintSheet = () => {
-    const sheetCanvas = document.createElement('canvas');
-    const sw = 1800;
-    const sh = 1200;
-    sheetCanvas.width = sw;
-    sheetCanvas.height = sh;
-    const sCtx = sheetCanvas.getContext('2d');
-    if (!sCtx) return;
-
-    sCtx.fillStyle = '#FFFFFF';
-    sCtx.fillRect(0, 0, sw, sh);
-
-    const pw = 380;
-    const ph = 490;
-    const singleCanvas = document.createElement('canvas');
-    singleCanvas.width = pw;
-    singleCanvas.height = ph;
-    const pCtx = singleCanvas.getContext('2d');
-    if (!pCtx) return;
-    drawPhotoOnCanvas(pCtx, pw, ph);
-
-    const cols = 4;
-    const rows = 2;
-    const startX = 60;
-    const startY = 80;
-    const gapX = 50;
-    const gapY = 50;
-
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        const x = startX + c * (pw + gapX);
-        const y = startY + r * (ph + gapY);
-
-        sCtx.drawImage(singleCanvas, x, y, pw, ph);
-        sCtx.strokeStyle = '#E2E8F0';
-        sCtx.lineWidth = 1;
-        sCtx.strokeRect(x, y, pw, ph);
-      }
+  useEffect(() => {
+    if (imageSrc) {
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = setTimeout(() => {
+        processPhoto();
+      }, 50);
     }
+  }, [imageSrc, sizeMode, customUnit, cmWidthStr, cmHeightStr, mmWidthStr, mmHeightStr, inchWidthStr, inchHeightStr, pxWidthStr, pxHeightStr, dpiStr, rotation, zoomLevel, panOffset, brightness, contrast, includeNameDate, fontSize, userName, dateText, targetKb, processPhoto]);
 
+  const downloadJpg = () => {
+    if (!outputUrl) return;
     const a = document.createElement('a');
-    a.download = `${candidateName.replace(/\s+/g, '_')}_4x6_print_sheet.jpg`;
-    a.href = sheetCanvas.toDataURL('image/jpeg', 0.98);
+    a.href = outputUrl;
+    a.download = `Photo_${includeNameDate ? 'With_Name_Date' : 'Passport'}_${outputKb}KB.jpg`;
     a.click();
   };
 
-  const setTodayDate = () => {
-    const today = new Date();
-    const dd = String(today.getDate()).padStart(2, '0');
-    const mm = String(today.getMonth() + 1).padStart(2, '0');
-    const yyyy = today.getFullYear();
-    setDateOfPhoto(`${dd}/${mm}/${yyyy}`);
+  const downloadPdf = () => {
+    if (!outputUrl) return;
+    try {
+      const pdf = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
+      const imgProps = pdf.getImageProperties(outputUrl);
+      const pdfW = pdf.internal.pageSize.getWidth();
+      const photoW = 35;
+      const photoH = (imgProps.height * photoW) / imgProps.width;
+      const x = (pdfW - photoW) / 2;
+      const y = 40;
+
+      pdf.addImage(outputUrl, 'JPEG', x, y, photoW, photoH);
+      pdf.save(`Photo_${includeNameDate ? 'With_Name_Date' : 'Passport'}_${outputKb}KB.pdf`);
+    } catch (e) {
+      console.error(e);
+      alert('PDF डाउनलोड करने में समस्या आई।');
+    }
   };
 
-  return (
-    <div className="max-w-2xl mx-auto px-4 py-8">
-      <div className="bg-white p-6 sm:p-8 rounded-2xl border border-slate-200 shadow-sm">
-        
-        <div className="inline-block px-3 py-1 bg-amber-100 text-amber-900 text-xs font-bold rounded-full mb-3">
-          🏪 CSC & साइबर कैफ़े स्पेशल • DOP मास्टर
+  const currentDimensions = getCalculatedDimensions();
+
+  // 1. मुख्य कैनवास / लाइव प्रीव्यू ब्लॉक
+  const CanvasSection = (
+    <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200 shadow-xs text-center h-full flex flex-col justify-between">
+      <div className="flex items-center justify-between mb-1.5 px-1">
+        <div className="flex items-center gap-1.5">
+          <span className="text-xs font-black text-slate-700 uppercase">
+            मुख्य कैनवास प्रीव्यू
+          </span>
+          {imageSrc && (
+            <span className="text-[10px] text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full font-bold">
+              ✋ पकड़कर खिसकाएँ
+            </span>
+          )}
         </div>
-        <h1 className="text-2xl sm:text-3xl font-black text-slate-900 mb-2">
-          फोटो पर नाम और तारीख मेकर (Name & Date on Photo)
-        </h1>
-        <p className="text-sm text-slate-600 mb-6">
-          सरकारी फॉर्म (SSC, UPSC, Police) हेतु 20KB-50KB फोटो बनाएँ या कलर प्रिंट निकालने के लिए 300 DPI 4x6 प्रिंटेबल शीट पाएँ।
-        </p>
+        <div className="flex items-center gap-1.5">
+          {isProcessing && (
+            <span className="text-[11px] text-amber-600 animate-pulse font-bold">
+              ⚡ प्रोसेसिंग...
+            </span>
+          )}
+          {outputKb > 0 && (
+            <span className="text-xs font-extrabold text-blue-700 bg-blue-100 px-2.5 py-0.5 rounded-full">
+              {outputKb} KB | {currentDimensions.label}
+            </span>
+          )}
+        </div>
+      </div>
 
-        <div className="border-2 border-dashed border-amber-300 rounded-2xl p-5 text-center bg-amber-50/40 mb-6">
-          <input
-            type="file"
-            accept="image/*"
-            capture="environment"
-            ref={cameraInputRef}
-            onChange={(e) => handleImageFile(e.target.files?.[0])}
-            className="hidden"
-          />
-          <input
-            type="file"
-            accept="image/*"
-            ref={galleryInputRef}
-            onChange={(e) => handleImageFile(e.target.files?.[0])}
-            className="hidden"
-          />
+      <div
+        onMouseDown={(e) => handlePointerDown(e.clientX, e.clientY)}
+        onMouseMove={(e) => handlePointerMove(e.clientX, e.clientY)}
+        onMouseUp={handlePointerUp}
+        onMouseLeave={handlePointerUp}
+        onTouchStart={(e) => {
+          if (e.touches[0]) handlePointerDown(e.touches[0].clientX, e.touches[0].clientY);
+        }}
+        onTouchMove={(e) => {
+          if (e.touches[0]) handlePointerMove(e.touches[0].clientX, e.touches[0].clientY);
+        }}
+        onTouchEnd={handlePointerUp}
+        className={`bg-slate-200 p-2 sm:p-6 rounded-xl border border-slate-300 flex items-center justify-center flex-1 min-h-[220px] sm:min-h-[280px] lg:min-h-[580px] overflow-hidden select-none ${
+          imageSrc ? (isDragging ? 'cursor-grabbing' : 'cursor-grab') : ''
+        }`}
+      >
+        {outputUrl ? (
+          <div className="bg-white p-2 rounded-xl shadow-2xl border border-slate-300 flex items-center justify-center max-w-[240px] sm:max-w-[320px] lg:max-w-[420px] pointer-events-none">
+            <img
+              src={outputUrl}
+              alt="Photo Preview"
+              className="w-full max-h-[210px] sm:max-h-[270px] lg:max-h-[520px] object-contain block mx-auto rounded"
+            />
+          </div>
+        ) : (
+          <div className="text-slate-400 text-xs sm:text-sm font-medium py-16">
+            कृपया दाईं तरफ से फोटो खींचें या अपलोड करें
+          </div>
+        )}
+      </div>
+    </div>
+  );
 
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+  // 2. साइडबार कंट्रोल्स
+  const ControlsSidebar = (
+    <div className="flex flex-col gap-3">
+      {/* 1. अपलोड / कैमरा */}
+      <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-xs">
+        {!imageSrc ? (
+          <div className="grid grid-cols-2 gap-2">
             <button
               type="button"
               onClick={() => cameraInputRef.current?.click()}
-              className="w-full sm:w-auto px-6 py-3 bg-amber-600 hover:bg-amber-700 text-white text-sm font-bold rounded-xl shadow-xs transition flex items-center justify-center gap-2"
+              className="p-3 rounded-xl border-2 border-dashed border-blue-500/60 bg-blue-50/50 hover:bg-blue-100/60 text-center flex flex-col items-center justify-center cursor-pointer transition-all"
             >
-              <span>📸</span>
-              <span>कैमरा खोलें (लाइव फोटो खींचे)</span>
+              <span className="text-2xl mb-0.5">📷</span>
+              <span className="text-xs font-black text-blue-900">कैमरा खोलें</span>
+              <span className="text-[9px] text-blue-700">फोटो खींचें</span>
             </button>
-
             <button
               type="button"
-              onClick={() => galleryInputRef.current?.click()}
-              className="w-full sm:w-auto px-6 py-3 bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 text-sm font-bold rounded-xl shadow-xs transition flex items-center justify-center gap-2"
+              onClick={() => fileInputRef.current?.click()}
+              className="p-3 rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 hover:bg-slate-100 text-center flex flex-col items-center justify-center cursor-pointer transition-all"
             >
-              <span>📁</span>
-              <span>गैलरी से चुनें</span>
+              <span className="text-2xl mb-0.5">📁</span>
+              <span className="text-xs font-black text-slate-800">गैलरी / फाइल्स</span>
+              <span className="text-[9px] text-slate-500">मेमोरी से चुनें</span>
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center justify-between text-xs">
+            <span className="font-bold text-slate-700 flex items-center gap-1">
+              <span className="text-green-600 font-bold">✔</span> फोटो लोड है
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => cameraInputRef.current?.click()}
+                className="text-blue-700 font-bold hover:underline cursor-pointer"
+              >
+                📷 कैमरा
+              </button>
+              <span className="text-slate-300">|</span>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="text-slate-700 font-bold hover:underline cursor-pointer"
+              >
+                📁 फाइल्स
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 2. नाम और तारीख टॉगल */}
+      <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-xs space-y-2.5">
+        <label className="flex items-center gap-2 cursor-pointer bg-slate-50 p-2 rounded-lg border border-slate-200 hover:bg-slate-100 transition-colors">
+          <input
+            type="checkbox"
+            checked={includeNameDate}
+            onChange={(e) => setIncludeNameDate(e.target.checked)}
+            className="w-4 h-4 accent-blue-600 cursor-pointer"
+          />
+          <div className="flex-1">
+            <span className="text-xs font-black text-slate-800 block">
+              फोटो पर नाम और तारीख जोड़ें
+            </span>
+            <span className="text-[9px] text-slate-500 block">
+              (सादी फोटो के लिए अनटिक करें)
+            </span>
+          </div>
+        </label>
+
+        {includeNameDate && (
+          <div className="space-y-2 pt-1 border-t border-slate-100">
+            <div>
+              <span className="text-[10px] font-bold text-slate-600 block mb-0.5">उम्मीदवार का नाम</span>
+              <input
+                type="text"
+                value={userName}
+                onChange={(e) => setUserName(e.target.value)}
+                placeholder="YOUR NAME"
+                className="w-full px-2 py-1 text-xs border border-slate-300 rounded font-bold uppercase"
+              />
+            </div>
+            <div>
+              <span className="text-[10px] font-bold text-slate-600 block mb-0.5">फोटो की तारीख (DOP)</span>
+              <input
+                type="text"
+                value={dateText}
+                onChange={(e) => setDateText(e.target.value)}
+                placeholder="DOP: 23/09/2026"
+                className="w-full px-2 py-1 text-xs border border-slate-300 rounded font-bold"
+              />
+            </div>
+            <div>
+              <div className="flex justify-between text-[10px] font-bold text-slate-600 mb-0.5">
+                <span>अक्षर साइज़ (Font Size)</span>
+                <span className="text-blue-700 font-bold">{fontSize}px</span>
+              </div>
+              <input
+                type="range"
+                min="12"
+                max="26"
+                value={fontSize}
+                onChange={(e) => setFontSize(Number(e.target.value))}
+                className="w-full accent-blue-600 cursor-pointer h-1.5"
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 3. रोटेशन, ज़ूम, ब्राइटनेस व कंट्रास्ट */}
+      {imageSrc && (
+        <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-xs space-y-2.5">
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[10px] font-black text-slate-700 uppercase">
+                🔄 रोटेशन: {rotation > 0 ? `+${rotation}° दाएँ` : rotation < 0 ? `${rotation}° बाएँ` : `0° (सीधा)`}
+              </span>
+              {rotation !== 0 && (
+                <button
+                  type="button"
+                  onClick={() => setRotation(0)}
+                  className="text-[9px] text-red-600 font-bold hover:underline cursor-pointer"
+                >
+                  रीसेट (0°)
+                </button>
+              )}
+            </div>
+            <input
+              type="range"
+              min="-90"
+              max="90"
+              step="1"
+              value={rotation}
+              onChange={(e) => setRotation(Number(e.target.value))}
+              className="w-full accent-blue-600 cursor-pointer h-1.5"
+            />
+            <div className="flex justify-between text-[8px] font-bold text-slate-400 mt-0.5">
+              <span onClick={() => setRotation(-90)} className="cursor-pointer hover:text-blue-600">-90°</span>
+              <span onClick={() => setRotation(0)} className="cursor-pointer text-blue-700 font-black">0°</span>
+              <span onClick={() => setRotation(90)} className="cursor-pointer hover:text-blue-600">+90°</span>
+            </div>
+          </div>
+
+          <div className="pt-1.5 border-t border-slate-100">
+            <div className="flex justify-between items-center mb-1">
+              <span className="text-[10px] font-black text-slate-700 uppercase">
+                🔍 ज़ूम: {zoomLevel.toFixed(1)}x
+              </span>
+              {(panOffset.x !== 0 || panOffset.y !== 0 || zoomLevel !== 1) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPanOffset({ x: 0, y: 0 });
+                    setZoomLevel(1);
+                  }}
+                  className="text-[9px] text-blue-700 font-bold hover:underline cursor-pointer"
+                >
+                  🎯 सेंटर रीसेट
+                </button>
+              )}
+            </div>
+            <input
+              type="range"
+              min="1"
+              max="5"
+              step="0.1"
+              value={zoomLevel}
+              onChange={(e) => setZoomLevel(Number(e.target.value))}
+              className="w-full accent-blue-600 cursor-pointer h-1.5"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 pt-1.5 border-t border-slate-100">
+            <div>
+              <div className="flex justify-between text-[9px] font-bold text-slate-600 mb-0.5">
+                <span>सफेदी (Light)</span>
+                <span className="text-blue-700 font-bold">{brightness}%</span>
+              </div>
+              <input
+                type="range"
+                min="70"
+                max="150"
+                value={brightness}
+                onChange={(e) => setBrightness(Number(e.target.value))}
+                className="w-full accent-blue-600 cursor-pointer h-1.5"
+              />
+            </div>
+            <div>
+              <div className="flex justify-between text-[9px] font-bold text-slate-600 mb-0.5">
+                <span>कंट्रास्ट (Sharp)</span>
+                <span className="text-blue-700 font-bold">{contrast}%</span>
+              </div>
+              <input
+                type="range"
+                min="70"
+                max="150"
+                value={contrast}
+                onChange={(e) => setContrast(Number(e.target.value))}
+                className="w-full accent-blue-600 cursor-pointer h-1.5"
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 4. डिफ़ॉल्ट बनाम कस्टम साइज़ पैनल */}
+      <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-xs space-y-2.5">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-black text-slate-700 uppercase">
+            फोटो साइज़ सेटिंग्स
+          </span>
+          <div className="flex gap-1 bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+            <button
+              type="button"
+              onClick={() => setSizeMode('default')}
+              className={`px-2.5 py-1 text-[10px] font-black rounded cursor-pointer transition-all ${
+                sizeMode === 'default' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              डिफ़ॉल्ट पासपोर्ट
+            </button>
+            <button
+              type="button"
+              onClick={() => setSizeMode('custom')}
+              className={`px-2.5 py-1 text-[10px] font-black rounded cursor-pointer transition-all ${
+                sizeMode === 'custom' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              ⚙️ कस्टम साइज़
             </button>
           </div>
         </div>
 
-        <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl mb-6 space-y-3">
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">
-              उम्मीदवार का नाम (Candidate Name):
-            </label>
-            <input
-              type="text"
-              value={candidateName}
-              onChange={(e) => setCandidateName(e.target.value)}
-              placeholder="उदा. RAHUL SHARMA"
-              className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl text-sm font-bold uppercase focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
-            />
+        {sizeMode === 'default' ? (
+          <div className="bg-blue-50/60 p-2.5 rounded-lg border border-blue-200 text-center">
+            <span className="text-xs font-black text-blue-900 block">
+              मानक पासपोर्ट फोटो: 3.5 × 4.5 सेमी @ 300 DPI
+            </span>
+            <span className="text-[10px] text-blue-700 block mt-0.5">
+              (SSC, UP Police, रेलवे, NTA आदि 95% सरकारी फॉर्म्स का मानक)
+            </span>
           </div>
-
-          <div>
-            <div className="flex justify-between items-center mb-1">
-              <label className="text-xs font-bold text-slate-700">
-                फोटो खींचने की तारीख (Date of Photo - DOP):
-              </label>
-              <button
-                type="button"
-                onClick={setTodayDate}
-                className="text-xs text-amber-700 font-bold underline"
-              >
-                ⚡ आज की तारीख डालें
-              </button>
-            </div>
-            <input
-              type="text"
-              value={dateOfPhoto}
-              onChange={(e) => setDateOfPhoto(e.target.value)}
-              placeholder="DD/MM/YYYY (उदा. 19/09/2026)"
-              className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl text-sm font-bold focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
-            />
-          </div>
-        </div>
-
-        <div className="mb-6">
-          <p className="text-xs font-bold text-slate-600 mb-2 flex items-center justify-between">
-            <span>👇 चेहरे को केंद्र में रखने के लिए फोटो को ड्रैग करें:</span>
-            <span className="text-[11px] text-amber-700 font-mono">मानक 3.5cm × 4.5cm</span>
-          </p>
-
-          <div className="flex justify-center">
-            <div className="border-4 border-slate-800 rounded-2xl p-2 bg-white shadow-md">
-              <div
-                onPointerDown={handlePointerDown}
-                onPointerMove={handlePointerMove}
-                onPointerUp={handlePointerUp}
-                className="relative w-64 h-80 bg-slate-100 rounded-xl overflow-hidden touch-none select-none flex items-center justify-center cursor-move"
-              >
-                {imageSrc ? (
-                  <canvas ref={previewCanvasRef} className="w-full h-full object-contain pointer-events-none" />
-                ) : (
-                  <div className="text-center p-4 text-slate-400">
-                    <span className="text-3xl block mb-1">👤</span>
-                    <span className="text-xs font-bold">ऊपर से फोटो खींचें या चुनें</span>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {imageSrc && (
-          <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-4 mb-6">
-            <div>
-              <div className="flex justify-between text-xs font-bold text-slate-700 mb-1">
-                <span>🔍 फ़ोटो ज़ूम (Zoom):</span>
-                <span className="text-amber-700 font-mono">{zoom.toFixed(1)}x</span>
-              </div>
-              <input
-                type="range"
-                min={0.5}
-                max={2.5}
-                step={0.05}
-                value={zoom}
-                onChange={(e) => setZoom(parseFloat(e.target.value))}
-                className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-amber-600"
-              />
-            </div>
-
-            <div>
-              <div className="flex justify-between text-xs font-bold text-slate-700 mb-1">
-                <span>📐 सीधा करें (Rotate):</span>
-                <span className="text-amber-700 font-mono">{rotation}°</span>
-              </div>
-              <input
-                type="range"
-                min={-45}
-                max={45}
-                step={1}
-                value={rotation}
-                onChange={(e) => setRotation(parseInt(e.target.value))}
-                className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-amber-600"
-              />
-              <div className="flex justify-between text-[10px] text-slate-400 mt-0.5">
-                <span>-45°</span>
-                <button type="button" onClick={() => setRotation(0)} className="text-amber-700 underline font-bold">
-                  0° रीसेट
+        ) : (
+          <div className="space-y-2 pt-1 border-t border-slate-100">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-black text-slate-600 uppercase">इकाई चुनें:</span>
+              <div className="flex gap-1">
+                <button
+                  type="button"
+                  onClick={() => setCustomUnit('cm')}
+                  className={`px-2 py-0.5 text-[10px] font-black rounded cursor-pointer ${
+                    customUnit === 'cm' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600'
+                  }`}
+                >
+                  सेंटीमीटर (CM)
                 </button>
-                <span>+45°</span>
+                <button
+                  type="button"
+                  onClick={() => setCustomUnit('mm')}
+                  className={`px-2 py-0.5 text-[10px] font-black rounded cursor-pointer ${
+                    customUnit === 'mm' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600'
+                  }`}
+                >
+                  मिलीमीटर (MM)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCustomUnit('px')}
+                  className={`px-2 py-0.5 text-[10px] font-black rounded cursor-pointer ${
+                    customUnit === 'px' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600'
+                  }`}
+                >
+                  पिक्सेल (Px)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCustomUnit('inch')}
+                  className={`px-2 py-0.5 text-[10px] font-black rounded cursor-pointer ${
+                    customUnit === 'inch' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600'
+                  }`}
+                >
+                  इंच (Inch)
+                </button>
               </div>
             </div>
 
-            <div className="pt-2 border-t border-slate-200">
-              <div className="flex justify-between text-xs font-bold text-slate-700 mb-1">
-                <span>🎯 ऑनलाइन फॉर्म साइज़ लक्ष्य:</span>
-                <span className="text-amber-700 font-mono">{targetKb} KB</span>
+            {/* सेंटीमीटर (CM) */}
+            {customUnit === 'cm' && (
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <span className="text-[10px] font-bold text-slate-600 block mb-0.5">चौड़ाई (CM)</span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={cmWidthStr}
+                    onChange={(e) => setCmWidthStr(e.target.value.replace(/[^0-9.]/g, ''))}
+                    placeholder="3.5"
+                    className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded font-bold"
+                  />
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold text-slate-600 block mb-0.5">ऊँचाई (CM)</span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={cmHeightStr}
+                    onChange={(e) => setCmHeightStr(e.target.value.replace(/[^0-9.]/g, ''))}
+                    placeholder="4.5"
+                    className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded font-bold"
+                  />
+                </div>
               </div>
-              <input
-                type="range"
-                min={20}
-                max={50}
-                step={5}
-                value={targetKb}
-                onChange={(e) => setTargetKb(parseInt(e.target.value))}
-                className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-amber-600"
-              />
-              <div className="flex justify-between text-[10px] text-slate-400 mt-0.5">
-                <span onClick={() => setTargetKb(20)} className="cursor-pointer hover:text-amber-700">20 KB (SSC)</span>
-                <span onClick={() => setTargetKb(35)} className="cursor-pointer hover:text-amber-700">35 KB (मानक)</span>
-                <span onClick={() => setTargetKb(50)} className="cursor-pointer hover:text-amber-700">50 KB (UPSC)</span>
+            )}
+
+            {/* मिलीमीटर (MM) */}
+            {customUnit === 'mm' && (
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <span className="text-[10px] font-bold text-slate-600 block mb-0.5">चौड़ाई (MM)</span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={mmWidthStr}
+                    onChange={(e) => setMmWidthStr(e.target.value.replace(/[^0-9.]/g, ''))}
+                    placeholder="35"
+                    className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded font-bold"
+                  />
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold text-slate-600 block mb-0.5">ऊँचाई (MM)</span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={mmHeightStr}
+                    onChange={(e) => setMmHeightStr(e.target.value.replace(/[^0-9.]/g, ''))}
+                    placeholder="45"
+                    className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded font-bold"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* पिक्सेल (Px) */}
+            {customUnit === 'px' && (
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <span className="text-[10px] font-bold text-slate-600 block mb-0.5">चौड़ाई (Px)</span>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={pxWidthStr}
+                    onChange={(e) => setPxWidthStr(e.target.value.replace(/[^0-9]/g, ''))}
+                    placeholder="350"
+                    className="w-full px-2.5 py-1.5 text-xs border border-blue-400 bg-blue-50/20 rounded font-bold"
+                  />
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold text-slate-600 block mb-0.5">ऊँचाई (Px)</span>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={pxHeightStr}
+                    onChange={(e) => setPxHeightStr(e.target.value.replace(/[^0-9]/g, ''))}
+                    placeholder="450"
+                    className="w-full px-2.5 py-1.5 text-xs border border-blue-400 bg-blue-50/20 rounded font-bold"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* इंच (Inch) */}
+            {customUnit === 'inch' && (
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <span className="text-[10px] font-bold text-slate-600 block mb-0.5">चौड़ाई (Inch)</span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={inchWidthStr}
+                    onChange={(e) => setInchWidthStr(e.target.value.replace(/[^0-9.]/g, ''))}
+                    placeholder="1.38"
+                    className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded font-bold"
+                  />
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold text-slate-600 block mb-0.5">ऊँचाई (Inch)</span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={inchHeightStr}
+                    onChange={(e) => setInchHeightStr(e.target.value.replace(/[^0-9.]/g, ''))}
+                    placeholder="1.77"
+                    className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded font-bold"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* प्रिंट रेज़ोल्यूशन (DPI) */}
+            <div className="pt-1.5 border-t border-slate-100 flex items-center justify-between">
+              <span className="text-[10px] font-bold text-slate-600">प्रिंट रेज़ोल्यूशन (DPI):</span>
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={dpiStr}
+                  onChange={(e) => setDpiStr(e.target.value.replace(/[^0-9]/g, ''))}
+                  placeholder="300"
+                  className="w-16 px-2 py-1 text-xs text-center border border-blue-400 bg-blue-50/20 rounded font-bold"
+                />
+                <span className="text-[9px] text-slate-400">मानक: 200 / 300 / 600</span>
               </div>
             </div>
           </div>
         )}
-
-        <div className="space-y-2.5">
-          <button
-            type="button"
-            onClick={downloadOnlineFormJpg}
-            disabled={!imageSrc}
-            className="w-full py-3.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-sm rounded-xl shadow-xs transition flex items-center justify-center gap-2 disabled:opacity-40"
-          >
-            <span>📥</span>
-            <span>ऑनलाइन फॉर्म हेतु डाउनलोड करें ({targetKb} KB लक्ष्य)</span>
-          </button>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={downloadStudioSingleJpg}
-              disabled={!imageSrc}
-              className="py-3 px-4 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center justify-center gap-2 disabled:opacity-40"
-            >
-              <span>🖼️</span>
-              <span>स्टूडियो प्रिंट HD फोटो (300 DPI)</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={download4x6PrintSheet}
-              disabled={!imageSrc}
-              className="py-3 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center justify-center gap-2 disabled:opacity-40"
-            >
-              <span>🖨️</span>
-              <span>4x6 प्रिंटेबल शीट (8 फोटो ग्रिड)</span>
-            </button>
-          </div>
-        </div>
-
       </div>
 
-      <FaqSection 
-        title="फोटो पर नाम व तारीख मेकर - अक्सर पूछे जाने वाले सवाल"
-        items={dopFaqs}
-        pageUrl="https://examsewa.online/tools/photo-name-date"
-      />
+      {/* 5. KB स्लाइडर (10 से 200 KB) */}
+      {imageSrc && (
+        <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-xs">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[10px] font-black text-slate-700 uppercase">
+              टारगेट फ़ाइल साइज (KB)
+            </span>
+            <span className="text-xs font-black text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full">
+              {targetKb} KB
+            </span>
+          </div>
+          <input
+            type="range"
+            min="10"
+            max="200"
+            step="1"
+            value={targetKb}
+            onChange={(e) => setTargetKb(Number(e.target.value))}
+            className="w-full accent-blue-600 cursor-pointer h-1.5"
+          />
+          <div className="flex justify-between text-[9px] font-bold text-slate-400 mt-1">
+            <span>10 KB</span>
+            <span className="text-blue-700 font-bold">10 KB से 200 KB तक पूरी रेंज</span>
+            <span>200 KB</span>
+          </div>
+        </div>
+      )}
 
+      {/* 6. डाउनलोड बटन्स */}
+      {imageSrc && (
+        <div className="grid grid-cols-2 gap-2 pt-1">
+          <button
+            onClick={downloadJpg}
+            disabled={!outputUrl || isProcessing}
+            className="py-3 bg-[#2563eb] hover:bg-[#1d4ed8] disabled:bg-slate-300 text-white font-extrabold text-xs rounded-xl shadow-md transition-all flex items-center justify-center cursor-pointer disabled:cursor-not-allowed"
+          >
+            <span>🖼️ JPG ({outputKb} KB)</span>
+          </button>
+          <button
+            onClick={downloadPdf}
+            disabled={!outputUrl || isProcessing}
+            className="py-3 bg-[#16a34a] hover:bg-[#15803d] disabled:bg-slate-300 text-white font-extrabold text-xs rounded-xl shadow-md transition-all flex items-center justify-center cursor-pointer disabled:cursor-not-allowed"
+          >
+            <span>📄 A4 PDF</span>
+          </button>
+        </div>
+      )}
+    </div>
+  );
+
+  return (
+    <div className="min-h-screen bg-slate-100 text-slate-900 py-3 px-3 sm:px-6 select-none">
+      <div className="max-w-[1500px] mx-auto">
+        <div className="mb-2">
+          <Link
+            href="/"
+            className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-700 bg-blue-100 px-3 py-1 rounded-full hover:bg-blue-200 transition-colors"
+          >
+            ← मुख्य होमपेज
+          </Link>
+        </div>
+
+        <div className="bg-white py-2 px-4 rounded-xl border border-slate-200 shadow-xs mb-3 text-center">
+          <h1 className="text-base sm:text-xl font-black text-slate-800">
+            पासपोर्ट फोटो रिसाइज़र व नाम-तारीख मेकर
+          </h1>
+          <p className="text-[10px] sm:text-xs text-slate-500 font-medium mt-0.5">
+            उम्मीदवार का नाम व तारीख जोड़ें या हटाएँ, मानक 3.5×4.5 सेमी या कस्टम CM/MM/Px/DPI में सटीक साइज़ व KB बनाएँ।
+          </p>
+        </div>
+
+        <input
+          type="file"
+          ref={fileInputRef}
+          onChange={handleFile}
+          accept="image/*"
+          className="hidden"
+        />
+        <input
+          type="file"
+          ref={cameraInputRef}
+          onChange={handleFile}
+          accept="image/*"
+          capture="environment"
+          className="hidden"
+        />
+
+        {/* --- 1. मोबाइल लेआउट --- */}
+        <div className="block lg:hidden space-y-3">
+          {CanvasSection}
+          {ControlsSidebar}
+        </div>
+
+        {/* --- 2. कंप्यूटर लेआउट (2/3 + 1/3) --- */}
+        <div className="hidden lg:grid grid-cols-12 gap-5 items-start">
+          <div className="col-span-8 sticky top-3">
+            {CanvasSection}
+          </div>
+          <div className="col-span-4">
+            {ControlsSidebar}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

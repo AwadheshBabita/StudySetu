@@ -65,9 +65,7 @@ export default function PwaInstallPrompt() {
     <div className="fixed bottom-3 left-3 right-3 sm:left-auto sm:right-6 sm:max-w-md z-50 pointer-events-auto">
       <div className="bg-slate-900 text-white p-3.5 rounded-2xl shadow-2xl border border-slate-800 flex items-center justify-between gap-3 animate-in slide-in-from-bottom duration-300">
         <div className="flex items-center gap-2.5 min-w-0">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-rose-500 to-amber-500 flex items-center justify-center text-xs font-black text-white shrink-0 shadow-sm">
-            ES
-          </div>
+          <div style={{ background: "linear-gradient(135deg, #f97316 0%, #ea580c 50%, #dc2626 100%)", color: "#ffffff", boxShadow: "0 2px 8px rgba(234, 88, 12, 0.4)" }} className="w-10 h-10 rounded-xl flex items-center justify-center font-black text-sm shrink-0 border border-orange-400/30">ES</div>
           <div className="min-w-0">
             <div className="text-xs font-bold text-white truncate">
               Exam Sewa ऐप
