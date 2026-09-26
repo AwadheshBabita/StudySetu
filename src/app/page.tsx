@@ -131,11 +131,11 @@ const ALL_21_TOOLS: ToolItem[] = [
   // --- 3. पीडीएफ टूल्स ---
   {
     id: 'image-to-pdf',
-    name: 'इमेज से A4 सरकारी PDF कनवर्टर',
-    desc: 'फोटो से 150-200 DPI की अनएन्क्रिप्टेड, मानक A4 सरकारी पीडीएफ बनाएं।',
+    name: "JPG से PDF कनवर्टर",
+    desc: "कई तस्वीरों को एक साथ जोड़कर मानक A4 साइज़ PDF में बदलें (तय KB लिमिट के साथ)।",
     category: 'pdf',
     icon: '📄',
-    link: '/tools/image-to-pdf',
+    link: '/tools/jpg-to-pdf',
     badge: 'मानक A4 PDF',
     isTop10: true
   },
@@ -379,11 +379,11 @@ export default function HomePage() {
                       <span className="w-8 h-8 rounded-lg bg-white/15 backdrop-blur-xs border border-white/30 flex items-center justify-center text-lg shrink-0 group-hover:scale-105 transition-transform shadow-xs">
                         {tool.icon}
                       </span>
-                      <h2 className="text-xs sm:text-[13.5px] font-black text-white leading-snug tracking-tight drop-shadow-xs">
+                      <h2 className="text-base sm:text-lg font-black text-white leading-snug tracking-normal drop-shadow-sm">
                         {tool.name}
                       </h2>
                     </div>
-                    <p className="mt-2.5 text-[11px] text-emerald-100/90 font-medium leading-relaxed line-clamp-2">
+                    <p className="mt-2 text-xs sm:text-sm text-emerald-50/95 font-medium leading-relaxed line-clamp-2">
                       {tool.desc}
                     </p>
                   </div>
@@ -513,7 +513,7 @@ export default function HomePage() {
                 📄 PDF टूल्स
               </h4>
               <ul className="space-y-1.5 text-[11px] text-slate-500">
-                <li><Link href="/tools/image-to-pdf" className="hover:text-blue-600">इमेज से A4 सरकारी PDF</Link></li>
+                <li><Link href="/tools/jpg-to-pdf" className="hover:text-blue-600">इमेज से A4 सरकारी PDF</Link></li>
                 <li><Link href="/tools/pdf-compressor" className="hover:text-blue-600">सरकारी फॉर्म PDF कंप्रेसर</Link></li>
                 <li><Link href="/tools/pdf-merge-split" className="hover:text-blue-600">PDF मर्ज व स्प्लिट</Link></li>
                 <li><Link href="/tools/pdf-to-jpg" className="hover:text-blue-600">PDF से JPG कनवर्टर</Link></li>

@@ -1,801 +1,663 @@
 "use client";
 
-import { useState, useRef, useEffect, ChangeEvent } from "react";
-import { PDFDocument } from "pdf-lib";
+import React, { useState, useRef } from "react";
+import Link from "next/link";
 
-type PageOrientation = "portrait" | "landscape";
-type FilterMode = "original" | "magic" | "bw" | "grayscale";
-
-interface Point {
-  x: number;
-  y: number;
+interface PageItem {
+  id: string;
+  dataUrl: string;
+  name: string;
+  width: number;
+  height: number;
 }
 
+type PresetMode = "50" | "100" | "200" | "300" | "custom" | "original";
+
 export default function JpgToPdfPage() {
-  const [imageSrc, setImageSrc] = useState<string | null>(null);
-  const [step, setStep] = useState<"upload" | "crop" | "filter">("upload");
-  const [filter, setFilter] = useState<FilterMode>("magic");
-  const [brightness, setBrightness] = useState<number>(12);
-  const [contrast, setContrast] = useState<number>(32);
-  const [targetKb, setTargetKb] = useState<number>(100);
-  const [orientation, setOrientation] = useState<PageOrientation>("portrait");
-  const [zoomLevel, setZoomLevel] = useState<number>(1);
+  const [pages, setPages] = useState<PageItem[]>([]);
+  const [orientation, setOrientation] = useState<"portrait" | "landscape">("portrait");
+  const [margin, setMargin] = useState<number>(5); // 0, 5, 10 mm
+  
+  // साइज़ सेटिंग्स
+  const [sizeMode, setSizeMode] = useState<PresetMode>("200");
+  const [customKb, setCustomKb] = useState<number>(200);
 
-  const [jpgDownloadUrl, setJpgDownloadUrl] = useState<string | null>(null);
-  const [pdfDownloadUrl, setPdfDownloadUrl] = useState<string | null>(null);
-  const [actualKb, setActualKb] = useState<number | null>(null);
-  const [processing, setProcessing] = useState<boolean>(false);
-  const [pdfGenerating, setPdfGenerating] = useState<boolean>(false);
+  const [isProcessing, setIsProcessing] = useState<boolean>(false);
+  const [progressMsg, setProgressMsg] = useState<string>("");
+  const [lastGeneratedPdfBlob, setLastGeneratedPdfBlob] = useState<Blob | null>(null);
 
-  // 4 corners: 0:TopLeft, 1:TopRight, 2:BottomRight, 3:BottomLeft
-  const [corners, setCorners] = useState<Point[]>([
-    { x: 40, y: 40 },
-    { x: 300, y: 40 },
-    { x: 300, y: 400 },
-    { x: 40, y: 400 }
-  ]);
-  const [activeCorner, setActiveCorner] = useState<number | null>(null);
-  const [touchPos, setTouchPos] = useState<Point | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const addMoreInputRef = useRef<HTMLInputElement | null>(null);
 
-  const originalImgRef = useRef<HTMLImageElement | null>(null);
-  const cropCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const rawCroppedCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  // प्रभावी टारगेट KB
+  const effectiveTargetKb = (): number => {
+    if (sizeMode === "50") return 50;
+    if (sizeMode === "100") return 100;
+    if (sizeMode === "200") return 200;
+    if (sizeMode === "300") return 300;
+    if (sizeMode === "original") return 9999;
+    return customKb;
+  };
 
-  const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const currentDisplayKb = lastGeneratedPdfBlob 
+    ? `${Math.round(lastGeneratedPdfBlob.size / 1024)} KB` 
+    : (sizeMode === "original" ? "मूल/HD" : `~${effectiveTargetKb()} KB`);
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = reader.result as string;
+  // फ़ाइलें लोड करना
+  const handleFiles = (files: FileList | null, isAppend = false) => {
+    if (!files || files.length === 0) return;
+
+    const fileArr = Array.from(files);
+    const newItems: PageItem[] = [];
+    let loadedCount = 0;
+
+    fileArr.forEach((file) => {
+      if (!file.type.startsWith("image/")) return;
+
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const dataUrl = e.target?.result as string;
+        const img = new Image();
+        img.onload = () => {
+          newItems.push({
+            id: Math.random().toString(36).substring(2, 9),
+            dataUrl,
+            name: file.name,
+            width: img.width,
+            height: img.height,
+          });
+          loadedCount++;
+          if (loadedCount === fileArr.length) {
+            setPages((prev) => (isAppend ? [...prev, ...newItems] : newItems));
+            setLastGeneratedPdfBlob(null);
+          }
+        };
+        img.src = dataUrl;
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  // पन्नों का क्रम बदलना
+  const movePage = (index: number, direction: "left" | "right") => {
+    const targetIdx = direction === "left" ? index - 1 : index + 1;
+    if (targetIdx < 0 || targetIdx >= pages.length) return;
+
+    const updated = [...pages];
+    const temp = updated[index];
+    updated[index] = updated[targetIdx];
+    updated[targetIdx] = temp;
+    setPages(updated);
+    setLastGeneratedPdfBlob(null);
+  };
+
+  // पन्ना हटाना
+  const removePage = (id: string) => {
+    setPages((prev) => prev.filter((p) => p.id !== id));
+    setLastGeneratedPdfBlob(null);
+  };
+
+  // jsPDF लोड करना
+  const loadJsPdf = async (): Promise<any> => {
+    if ((window as any).jspdf) return (window as any).jspdf.jsPDF;
+    return new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
+      script.onload = () => resolve((window as any).jspdf.jsPDF);
+      script.onerror = () => reject(new Error("PDF इंजन लोड नहीं हो सका"));
+      document.body.appendChild(script);
+    });
+  };
+
+  // हाई-क्वालिटी टेक्स्ट शार्पनिंग व व्हाइटनिंग
+  const optimizePage = (dataUrl: string, qualityFactor: number, maxDim: number): Promise<string> => {
+    return new Promise((resolve) => {
       const img = new Image();
       img.onload = () => {
-        originalImgRef.current = img;
-        setImageSrc(dataUrl);
-        setStep("crop");
-        setZoomLevel(1);
-
-        const w = img.naturalWidth;
-        const h = img.naturalHeight;
-        setCorners([
-          { x: Math.round(w * 0.08), y: Math.round(h * 0.08) },
-          { x: Math.round(w * 0.92), y: Math.round(h * 0.08) },
-          { x: Math.round(w * 0.92), y: Math.round(h * 0.92) },
-          { x: Math.round(w * 0.08), y: Math.round(h * 0.92) }
-        ]);
-      };
-      img.src = dataUrl;
-    };
-    reader.readAsDataURL(file);
-  };
-
-  // Render Interactive Dewarping Surface with Magnifier
-  const drawCropScreen = () => {
-    const canvas = cropCanvasRef.current;
-    const img = originalImgRef.current;
-    if (!canvas || !img) return;
-
-    canvas.width = img.naturalWidth;
-    canvas.height = img.naturalHeight;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(img, 0, 0);
-
-    // Dark backdrop overlay
-    ctx.fillStyle = "rgba(15, 23, 42, 0.55)";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // Document Cutout Window
-    ctx.save();
-    ctx.beginPath();
-    ctx.moveTo(corners[0].x, corners[0].y);
-    ctx.lineTo(corners[1].x, corners[1].y);
-    ctx.lineTo(corners[2].x, corners[2].y);
-    ctx.lineTo(corners[3].x, corners[3].y);
-    ctx.closePath();
-    ctx.clip();
-    ctx.drawImage(img, 0, 0);
-    ctx.restore();
-
-    // Laser Grid Lines
-    ctx.strokeStyle = "#10b981";
-    ctx.lineWidth = Math.max(3, Math.round(img.naturalWidth / 280));
-    ctx.beginPath();
-    ctx.moveTo(corners[0].x, corners[0].y);
-    ctx.lineTo(corners[1].x, corners[1].y);
-    ctx.lineTo(corners[2].x, corners[2].y);
-    ctx.lineTo(corners[3].x, corners[3].y);
-    ctx.closePath();
-    ctx.stroke();
-
-    // Subtle 3x3 internal alignment grid for perfect perspective feel
-    ctx.strokeStyle = "rgba(16, 185, 129, 0.25)";
-    ctx.lineWidth = Math.max(1, Math.round(img.naturalWidth / 600));
-    for (let i = 1; i <= 2; i++) {
-      const t = i / 3;
-      // Horizontal grid
-      const hx1 = corners[0].x + (corners[3].x - corners[0].x) * t;
-      const hy1 = corners[0].y + (corners[3].y - corners[0].y) * t;
-      const hx2 = corners[1].x + (corners[2].x - corners[1].x) * t;
-      const hy2 = corners[1].y + (corners[2].y - corners[1].y) * t;
-      ctx.beginPath();
-      ctx.moveTo(hx1, hy1);
-      ctx.lineTo(hx2, hy2);
-      ctx.stroke();
-
-      // Vertical grid
-      const vx1 = corners[0].x + (corners[1].x - corners[0].x) * t;
-      const vy1 = corners[0].y + (corners[1].y - corners[0].y) * t;
-      const vx2 = corners[3].x + (corners[2].x - corners[3].x) * t;
-      const vy2 = corners[3].y + (corners[2].y - corners[3].y) * t;
-      ctx.beginPath();
-      ctx.moveTo(vx1, vy1);
-      ctx.lineTo(vx2, vy2);
-      ctx.stroke();
-    }
-
-    // High Precision Touch Corner Handles
-    const handleRadius = Math.max(16, Math.round(img.naturalWidth / 50));
-    corners.forEach((pt, i) => {
-      ctx.beginPath();
-      ctx.arc(pt.x, pt.y, handleRadius, 0, Math.PI * 2);
-      ctx.fillStyle = activeCorner === i ? "#f59e0b" : "#10b981";
-      ctx.fill();
-      ctx.lineWidth = Math.max(3, Math.round(handleRadius / 3));
-      ctx.strokeStyle = "#ffffff";
-      ctx.stroke();
-
-      // Target Crosshair
-      ctx.beginPath();
-      ctx.arc(pt.x, pt.y, Math.round(handleRadius * 0.35), 0, Math.PI * 2);
-      ctx.fillStyle = "#ffffff";
-      ctx.fill();
-    });
-
-    // Mobile Magnifier Lens (उंगली के ऊपर लाइव ज़ूम लेंस)
-    if (activeCorner !== null && touchPos) {
-      const activePt = corners[activeCorner];
-      const lensR = Math.max(65, Math.round(img.naturalWidth / 12));
-      const lensOffsetY = Math.round(lensR * 1.5);
-      const lx = activePt.x;
-      const ly = Math.max(lensR + 10, activePt.y - lensOffsetY);
-
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(lx, ly, lensR, 0, Math.PI * 2);
-      ctx.clip();
-      ctx.fillStyle = "#ffffff";
-      ctx.fill();
-
-      // 2.5x Zoom Image under finger
-      const zoom = 2.5;
-      ctx.drawImage(
-        img,
-        activePt.x - lensR / zoom,
-        activePt.y - lensR / zoom,
-        (lensR * 2) / zoom,
-        (lensR * 2) / zoom,
-        lx - lensR,
-        ly - lensR,
-        lensR * 2,
-        lensR * 2
-      );
-
-      // Lens Reticle Crosshair
-      ctx.strokeStyle = "#ef4444";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(lx - 16, ly);
-      ctx.lineTo(lx + 16, ly);
-      ctx.moveTo(lx, ly - 16);
-      ctx.lineTo(lx, ly + 16);
-      ctx.stroke();
-
-      // Lens Outer Border
-      ctx.restore();
-      ctx.beginPath();
-      ctx.arc(lx, ly, lensR, 0, Math.PI * 2);
-      ctx.lineWidth = 4;
-      ctx.strokeStyle = "#ffffff";
-      ctx.stroke();
-    }
-  };
-
-  useEffect(() => {
-    if (step === "crop") {
-      drawCropScreen();
-    }
-  }, [step, corners, activeCorner, touchPos]);
-
-  const getCanvasCoords = (clientX: number, clientY: number): Point => {
-    const canvas = cropCanvasRef.current;
-    if (!canvas) return { x: 0, y: 0 };
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-    return {
-      x: (clientX - rect.left) * scaleX,
-      y: (clientY - rect.top) * scaleY
-    };
-  };
-
-  const handlePointerDown = (clientX: number, clientY: number) => {
-    const pt = getCanvasCoords(clientX, clientY);
-    const canvas = cropCanvasRef.current;
-    const touchThreshold = canvas ? Math.max(45, Math.round(canvas.width / 16)) : 50;
-
-    let closest = -1;
-    let minD = touchThreshold;
-
-    corners.forEach((c, idx) => {
-      const d = Math.hypot(c.x - pt.x, c.y - pt.y);
-      if (d < minD) {
-        minD = d;
-        closest = idx;
-      }
-    });
-
-    if (closest !== -1) {
-      setActiveCorner(closest);
-      setTouchPos(pt);
-    }
-  };
-
-  const handlePointerMove = (clientX: number, clientY: number) => {
-    if (activeCorner === null) return;
-    const pt = getCanvasCoords(clientX, clientY);
-    const img = originalImgRef.current;
-    if (!img) return;
-
-    setTouchPos(pt);
-    setCorners((prev) =>
-      prev.map((c, idx) =>
-        idx === activeCorner
-          ? {
-              x: Math.max(0, Math.min(img.naturalWidth, Math.round(pt.x))),
-              y: Math.max(0, Math.min(img.naturalHeight, Math.round(pt.y)))
-            }
-          : c
-      )
-    );
-  };
-
-  const handlePointerUp = () => {
-    setActiveCorner(null);
-    setTouchPos(null);
-  };
-
-  // TRUE PERSPECTIVE HOMOGRAPHY WARP (कागज़ को 100% समतल सीधा A4 बनाना)
-  const runStraighten = () => {
-    if (!originalImgRef.current) return;
-    setProcessing(true);
-
-    setTimeout(() => {
-      try {
-        const img = originalImgRef.current!;
-        const [c0, c1, c2, c3] = corners;
-
-        // Calculate true natural aspect ratio from quad corners
-        const topW = Math.hypot(c1.x - c0.x, c1.y - c0.y);
-        const botW = Math.hypot(c2.x - c3.x, c2.y - c3.y);
-        const outW = Math.round(Math.max(topW, botW));
-
-        const leftH = Math.hypot(c3.x - c0.x, c3.y - c0.y);
-        const rightH = Math.hypot(c2.x - c1.x, c2.y - c1.y);
-        const outH = Math.round(Math.max(leftH, rightH));
-
-        // High resolution warp canvas
         const canvas = document.createElement("canvas");
-        canvas.width = Math.max(100, outW);
-        canvas.height = Math.max(100, outH);
-        const ctx = canvas.getContext("2d", { willReadFrequently: true });
-        if (!ctx) return;
+        
+        let w = img.width;
+        let h = img.height;
 
-        // Inverse projective mapping for pixel-perfect straight rectangular output
-        const srcCanvas = document.createElement("canvas");
-        srcCanvas.width = img.naturalWidth;
-        srcCanvas.height = img.naturalHeight;
-        const sCtx = srcCanvas.getContext("2d");
-        sCtx?.drawImage(img, 0, 0);
-        const srcData = sCtx?.getImageData(0, 0, srcCanvas.width, srcCanvas.height);
-        if (!srcData) return;
-
-        const outData = ctx.createImageData(canvas.width, canvas.height);
-        const sD = srcData.data;
-        const oD = outData.data;
-        const sw = srcCanvas.width;
-        const sh = srcCanvas.height;
-        const ow = canvas.width;
-        const oh = canvas.height;
-
-        // Bilinear forward-backward mapping without gaps or lines
-        for (let y = 0; y < oh; y++) {
-          const v = y / (oh - 1);
-          // Left to right interpolations
-          const lx = c0.x + (c3.x - c0.x) * v;
-          const ly = c0.y + (c3.y - c0.y) * v;
-          const rx = c1.x + (c2.x - c1.x) * v;
-          const ry = c1.y + (c2.y - c1.y) * v;
-
-          for (let x = 0; x < ow; x++) {
-            const u = x / (ow - 1);
-            const sx = Math.round(lx + (rx - lx) * u);
-            const sy = Math.round(ly + (ry - ly) * u);
-
-            const outIdx = (y * ow + x) * 4;
-            if (sx >= 0 && sx < sw && sy >= 0 && sy < sh) {
-              const srcIdx = (sy * sw + sx) * 4;
-              oD[outIdx] = sD[srcIdx];
-              oD[outIdx + 1] = sD[srcIdx + 1];
-              oD[outIdx + 2] = sD[srcIdx + 2];
-              oD[outIdx + 3] = 255;
-            } else {
-              oD[outIdx] = 255;
-              oD[outIdx + 1] = 255;
-              oD[outIdx + 2] = 255;
-              oD[outIdx + 3] = 255;
-            }
+        if (w > maxDim || h > maxDim) {
+          if (w > h) {
+            h = Math.round((h * maxDim) / w);
+            w = maxDim;
+          } else {
+            w = Math.round((w * maxDim) / h);
+            h = maxDim;
           }
         }
 
-        ctx.putImageData(outData, 0, 0);
-        rawCroppedCanvasRef.current = canvas;
-        setStep("filter");
-      } catch {
-        alert("कागज़ सीधा करने में समस्या आई।");
-      } finally {
-        setProcessing(false);
-      }
-    }, 40);
-  };
-
-  // Ultra-Crisp A4 Sheet Placement & Filters
-  const applyFilters = () => {
-    const cropped = rawCroppedCanvasRef.current;
-    if (!cropped) return;
-
-    // True standard ISO A4 Ratio (1 : 1.4142)
-    const a4W = orientation === "portrait" ? 1414 : 2000;
-    const a4H = orientation === "portrait" ? 2000 : 1414;
-
-    const finalCanvas = document.createElement("canvas");
-    finalCanvas.width = a4W;
-    finalCanvas.height = a4H;
-    const ctx = finalCanvas.getContext("2d", { willReadFrequently: true });
-    if (!ctx) return;
-
-    // Pure White Studio Sheet
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, a4W, a4H);
-
-    // Smart Margins: 3.5% padding so document looks beautifully printed
-    const margin = Math.round(a4W * 0.035);
-    const availW = a4W - margin * 2;
-    const availH = a4H - margin * 2;
-
-    const scale = Math.min(availW / cropped.width, availH / cropped.height);
-    const drawW = Math.round(cropped.width * scale);
-    const drawH = Math.round(cropped.height * scale);
-    const drawX = Math.round(margin + (availW - drawW) / 2);
-    const drawY = Math.round(margin + (availH - drawH) / 2);
-
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = "high";
-    ctx.drawImage(cropped, drawX, drawY, drawW, drawH);
-
-    // Document Text Sharpener & Background Whiteness
-    const imgData = ctx.getImageData(0, 0, a4W, a4H);
-    const d = imgData.data;
-    const factor = (259 * (contrast + 255)) / (255 * (259 - contrast));
-
-    for (let i = 0; i < d.length; i += 4) {
-      let r = d[i] + brightness;
-      let g = d[i + 1] + brightness;
-      let b = d[i + 2] + brightness;
-
-      r = factor * (r - 128) + 128;
-      g = factor * (g - 128) + 128;
-      b = factor * (b - 128) + 128;
-
-      if (filter === "bw") {
-        const gray = 0.299 * r + 0.587 * g + 0.114 * b;
-        const val = gray > 142 ? 255 : 0;
-        d[i] = val;
-        d[i + 1] = val;
-        d[i + 2] = val;
-      } else if (filter === "grayscale") {
-        const gray = 0.299 * r + 0.587 * g + 0.114 * b;
-        const clamped = Math.max(0, Math.min(255, gray));
-        d[i] = clamped;
-        d[i + 1] = clamped;
-        d[i + 2] = clamped;
-      } else if (filter === "magic") {
-        // Smart CamScanner Magic Whiteness
-        const maxVal = Math.max(r, g, b);
-        if (maxVal > 156) {
-          d[i] = 255;
-          d[i + 1] = 255;
-          d[i + 2] = 255;
-        } else {
-          d[i] = Math.max(0, Math.min(255, r * 0.82));
-          d[i + 1] = Math.max(0, Math.min(255, g * 0.82));
-          d[i + 2] = Math.max(0, Math.min(255, b * 0.82));
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          resolve(dataUrl);
+          return;
         }
-      } else {
-        d[i] = Math.max(0, Math.min(255, r));
-        d[i + 1] = Math.max(0, Math.min(255, g));
-        d[i + 2] = Math.max(0, Math.min(255, b));
-      }
-    }
 
-    ctx.putImageData(imgData, 0, 0);
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, w, h);
+        ctx.drawImage(img, 0, 0, w, h);
 
-    const preview = previewCanvasRef.current;
-    if (preview) {
-      preview.width = a4W;
-      preview.height = a4H;
-      const pCtx = preview.getContext("2d");
-      pCtx?.drawImage(finalCanvas, 0, 0);
-    }
+        if (sizeMode !== "original") {
+          const imgData = ctx.getImageData(0, 0, w, h);
+          const d = imgData.data;
+          for (let i = 0; i < d.length; i += 4) {
+            const r = d[i];
+            const g = d[i + 1];
+            const b = d[i + 2];
+            
+            // पीलापन/धुंधलापन हटाकर साफ़ सफ़ेद
+            if (r > 190 && g > 190 && b > 180) {
+              d[i] = 255;
+              d[i + 1] = 255;
+              d[i + 2] = 255;
+            } else if (r < 110 && g < 110 && b < 110) {
+              // अक्षरों की स्याही को गहरा करना
+              d[i] = Math.max(0, r - 20);
+              d[i + 1] = Math.max(0, g - 20);
+              d[i + 2] = Math.max(0, b - 20);
+            }
+          }
+          ctx.putImageData(imgData, 0, 0);
+        }
 
-    setJpgDownloadUrl(finalCanvas.toDataURL("image/jpeg", 0.96));
+        resolve(canvas.toDataURL("image/jpeg", qualityFactor));
+      };
+      img.src = dataUrl;
+    });
   };
 
-  useEffect(() => {
-    if (step === "filter") {
-      applyFilters();
-    }
-  }, [step, filter, brightness, contrast, orientation]);
+  // संयुक्त PDF बनाना
+  const buildPdfDocument = async (quality: number, maxDim: number) => {
+    const JsPDF = await loadJsPdf();
+    const isPortrait = orientation === "portrait";
+    const doc = new JsPDF({
+      orientation: isPortrait ? "p" : "l",
+      unit: "mm",
+      format: "a4",
+      compress: true,
+    });
 
-  // Binary Search Exact KB PDF Engine
-  const generateFinalPdf = async () => {
-    const preview = previewCanvasRef.current;
-    if (!preview) return;
-    setPdfGenerating(true);
+    const pageWidth = isPortrait ? 210 : 297;
+    const pageHeight = isPortrait ? 297 : 210;
+    const availWidth = pageWidth - margin * 2;
+    const availHeight = pageHeight - margin * 2;
+
+    for (let i = 0; i < pages.length; i++) {
+      if (i > 0) doc.addPage("a4", isPortrait ? "p" : "l");
+      const page = pages[i];
+      const optData = await optimizePage(page.dataUrl, quality, maxDim);
+
+      const imgRatio = page.width / page.height;
+      const boxRatio = availWidth / availHeight;
+      let drawW = availWidth;
+      let drawH = availHeight;
+
+      if (imgRatio > boxRatio) {
+        drawW = availWidth;
+        drawH = availWidth / imgRatio;
+      } else {
+        drawH = availHeight;
+        drawW = availHeight * imgRatio;
+      }
+
+      const posX = margin + (availWidth - drawW) / 2;
+      const posY = margin + (availHeight - drawH) / 2;
+
+      doc.addImage(optData, "JPEG", posX, posY, drawW, drawH, undefined, "FAST");
+    }
+
+    const pdfBlob = doc.output("blob") as Blob;
+    return { doc, pdfBlob };
+  };
+
+  // पक्का साइज़ कंट्रोल और जनरेट करना
+  const handleProcessPdf = async (autoDownload = true): Promise<Blob | null> => {
+    if (pages.length === 0) return null;
+    setIsProcessing(true);
+    setProgressMsg("प्रोसेसिंग...");
+
+    const maxLimit = effectiveTargetKb();
 
     try {
-      const pdfDoc = await PDFDocument.create();
-      const pageWidth = orientation === "portrait" ? 595.28 : 841.89;
-      const pageHeight = orientation === "portrait" ? 841.89 : 595.28;
-      const page = pdfDoc.addPage([pageWidth, pageHeight]);
+      let maxDim = 1250;
+      let quality = sizeMode === "original" ? 0.95 : 0.65;
 
-      const targetBytes = targetKb * 1024;
-      let lowQ = 0.05;
-      let highQ = 0.98;
-      let bestBlob: Blob | null = null;
-      let currentBytes = 0;
-
-      for (let iter = 0; iter < 7; iter++) {
-        const midQ = (lowQ + highQ) / 2;
-        const blob: Blob = await new Promise((res) => {
-          preview.toBlob((b) => res(b!), "image/jpeg", midQ);
-        });
-
-        currentBytes = blob.size;
-        bestBlob = blob;
-
-        if (Math.abs(currentBytes - targetBytes) < targetBytes * 0.05) {
-          break;
-        }
-        if (currentBytes > targetBytes) {
-          highQ = midQ;
-        } else {
-          lowQ = midQ;
+      if (sizeMode !== "original") {
+        const perPageKb = maxLimit / pages.length;
+        if (perPageKb < 15) {
+          maxDim = 850;
+          quality = 0.32;
+        } else if (perPageKb < 30) {
+          maxDim = 1000;
+          quality = 0.42;
+        } else if (perPageKb < 60) {
+          maxDim = 1150;
+          quality = 0.58;
         }
       }
 
-      const imageBytes = await bestBlob!.arrayBuffer();
-      const embeddedImage = await pdfDoc.embedJpg(imageBytes);
+      let result = await buildPdfDocument(quality, maxDim);
+      let sizeKb = Math.round(result.pdfBlob.size / 1024);
 
-      page.drawImage(embeddedImage, {
-        x: 0,
-        y: 0,
-        width: pageWidth,
-        height: pageHeight
-      });
+      if (sizeMode !== "original" && sizeKb > maxLimit) {
+        setProgressMsg(`साइज़ सेट हो रहा है...`);
+        let attempts = 0;
+        while (sizeKb > maxLimit && attempts < 3) {
+          attempts++;
+          quality = Math.max(0.18, quality * (maxLimit / sizeKb) * 0.92);
+          if (attempts > 1) maxDim = Math.max(750, Math.round(maxDim * 0.85));
+          result = await buildPdfDocument(quality, maxDim);
+          sizeKb = Math.round(result.pdfBlob.size / 1024);
+        }
+      }
 
-      const pdfBytes = await pdfDoc.save();
-      const finalBlob = new Blob([pdfBytes], { type: "application/pdf" });
-      setActualKb(Math.round(finalBlob.size / 1024));
+      const blobUrl = URL.createObjectURL(result.pdfBlob);
+      setLastGeneratedPdfBlob(result.pdfBlob);
 
-      if (pdfDownloadUrl) URL.revokeObjectURL(pdfDownloadUrl);
-      const newUrl = URL.createObjectURL(finalBlob);
-      setPdfDownloadUrl(newUrl);
-    } catch {
-      alert("PDF तैयार करने में समस्या आई।");
+      if (autoDownload) {
+        const a = document.createElement("a");
+        a.href = blobUrl;
+        const downloadName = `ExamSewa-${pages.length}pages-${Math.round(result.pdfBlob.size / 1024)}kb.pdf`;
+        a.download = downloadName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      }
+
+      return result.pdfBlob;
+
+    } catch (err) {
+      console.error(err);
+      alert("PDF बनाने में त्रुटि हुई। कृपया पुनः प्रयास करें।");
+      return null;
     } finally {
-      setPdfGenerating(false);
+      setIsProcessing(false);
+      setProgressMsg("");
     }
   };
 
-  useEffect(() => {
-    if (step === "filter") {
-      generateFinalPdf();
+  // वेब शेयर फ़ंक्शन
+  const handleSharePdf = async () => {
+    let blobToShare = lastGeneratedPdfBlob;
+    if (!blobToShare) {
+      blobToShare = await handleProcessPdf(false);
     }
-  }, [step, targetKb, orientation, filter, brightness, contrast]);
+    if (!blobToShare) return;
+
+    const file = new File(
+      [blobToShare],
+      `ExamSewa-Document-${pages.length}-pages.pdf`,
+      { type: "application/pdf" }
+    );
+
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({
+          files: [file],
+          title: "ExamSewa A4 PDF",
+          text: `ExamSewa से तैयार A4 PDF (${pages.length} पेज, ${Math.round(blobToShare.size / 1024)} KB)`,
+        });
+      } catch (e) {
+        console.log("शेयर रद्द");
+      }
+    } else {
+      alert("आपके डिवाइस में डायरेक्ट शेयरिंग समर्थित नहीं है। कृपया डाउनलोड बटन का उपयोग करें।");
+    }
+  };
 
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-800 py-8 px-4 sm:px-6">
-      <div className="max-w-4xl mx-auto space-y-6">
+    <main className="min-h-screen bg-slate-50 py-3 sm:py-6 px-2 sm:px-4 text-slate-800 select-none">
+      <div className="max-w-6xl mx-auto space-y-4">
         
-        {/* Header */}
-        <div className="text-center space-y-2">
-          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">
-            JPG से A4 PDF कनवर्टर (सरकारी फॉर्म व मार्कशीट)
-          </h1>
-          <p className="text-gray-600 text-sm">
-            4-कॉर्नर कटिंग, Portrait/Landscape स्विच और 10 से 200 KB सटीक स्लाइडर
-          </p>
+        {/* हेडर */}
+        <div className="flex items-center justify-between bg-white px-4 py-2.5 rounded-xl border border-slate-200 shadow-xs">
+          <Link href="/" className="text-xs sm:text-sm font-semibold text-blue-600 hover:underline">
+            ← होमपेज
+          </Link>
+          <div className="text-center">
+            <h1 className="text-base sm:text-lg font-black text-slate-900">
+              JPG to PDF Converter
+            </h1>
+            <p className="text-[11px] text-slate-500 font-medium hidden sm:block">
+              तस्वीरों को क्रमबद्ध करके मानक A4 PDF में बदलें
+            </p>
+          </div>
+          <span className="text-[11px] font-bold bg-blue-50 text-blue-700 px-2.5 py-1 rounded-full border border-blue-200">
+            A4 सरकारी PDF
+          </span>
         </div>
 
-        {/* Step 1: Upload */}
-        {step === "upload" && (
-          <div className="bg-white border-2 border-dashed border-gray-300 rounded-2xl p-10 text-center hover:border-emerald-500 shadow-sm transition-colors">
-            <input
-              type="file"
-              accept="image/*"
-              id="doc-upload"
-              className="hidden"
-              onChange={handleFileChange}
-            />
-            <label htmlFor="doc-upload" className="cursor-pointer flex flex-col items-center gap-4">
-              <div className="w-16 h-16 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center text-3xl font-bold">
-                +
-              </div>
-              <div>
-                <span className="text-lg font-medium text-gray-900 block">
-                  कागज़ या मार्कशीट की फोटो चुनें
-                </span>
-                <span className="text-xs text-gray-500">JPG, PNG या WEBP फाइल चुनें</span>
-              </div>
-            </label>
+        {/* खाली अपलोड कार्ड */}
+        {pages.length === 0 && (
+          <div className="bg-white border-2 border-dashed border-blue-400 rounded-3xl p-8 sm:p-14 text-center max-w-2xl mx-auto shadow-xs space-y-4">
+            <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mx-auto text-3xl shadow-inner">
+              📄
+            </div>
+            <div className="space-y-1">
+              <h2 className="text-lg sm:text-xl font-bold text-slate-900">
+                तस्वीरें चुनें या यहाँ खींच कर छोड़ें
+              </h2>
+              <p className="text-xs sm:text-sm text-slate-500">
+                मार्कशीट, आधार कार्ड, दस्तावेज़ या कई फ़ोटो एक साथ जोड़ें (JPG, JPEG, PNG)
+              </p>
+            </div>
+            <div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={(e) => handleFiles(e.target.files, false)}
+                className="hidden"
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm rounded-xl shadow-md transition transform active:scale-95 cursor-pointer inline-flex items-center gap-2"
+              >
+                <span>📁</span> फ़ोटो चुनें (Select Images)
+              </button>
+            </div>
+            <p className="text-[11px] text-slate-400">
+              ⚡ 100% प्राइवेट: आपकी फ़ाइलें आपके डिवाइस में ही सुरक्षित रहती हैं
+            </p>
           </div>
         )}
 
-        {/* Step 2: Next-Gen Perspective Crop with Magnifier */}
-        {step === "crop" && (
-          <div className="bg-white rounded-2xl p-4 sm:p-6 space-y-4 border border-gray-200 shadow-sm">
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 pb-3">
-              <div>
-                <h2 className="font-semibold text-gray-900">कागज़ के 4 कोने सेट करें</h2>
-                <p className="text-xs text-emerald-600 font-medium">
-                  💡 किसी भी कोने को दबाएँ—सटीक सेटिंग के लिए ज़ूम लेंस ऊपर दिखेगा
-                </p>
-              </div>
-
-              {/* Zoom Screen Controls */}
-              <div className="flex items-center gap-2 bg-gray-100 px-3 py-1.5 rounded-lg border border-gray-200">
-                <span className="text-xs text-gray-600 font-medium">कैनवस ज़ूम:</span>
-                <button
-                  type="button"
-                  onClick={() => setZoomLevel((z) => Math.max(0.6, Number((z - 0.2).toFixed(1))))}
-                  className="w-7 h-7 bg-white hover:bg-gray-200 text-gray-800 rounded font-bold shadow-sm border border-gray-200"
-                >
-                  -
-                </button>
-                <span className="text-xs font-mono w-10 text-center font-bold text-gray-700">{Math.round(zoomLevel * 100)}%</span>
-                <button
-                  type="button"
-                  onClick={() => setZoomLevel((z) => Math.min(3, Number((z + 0.2).toFixed(1))))}
-                  className="w-7 h-7 bg-white hover:bg-gray-200 text-gray-800 rounded font-bold shadow-sm border border-gray-200"
-                >
-                  +
-                </button>
-              </div>
-            </div>
-
-            <div className="overflow-auto max-h-[65vh] border border-gray-200 rounded-xl bg-slate-950 p-2 flex justify-center">
-              <div style={{ transform: `scale(${zoomLevel})`, transformOrigin: "top center", transition: "transform 0.15s ease-out" }}>
-                <canvas
-                  ref={cropCanvasRef}
-                  className="touch-none cursor-crosshair max-w-full h-auto block rounded shadow"
-                  onMouseDown={(e) => handlePointerDown(e.clientX, e.clientY)}
-                  onMouseMove={(e) => handlePointerMove(e.clientX, e.clientY)}
-                  onMouseUp={handlePointerUp}
-                  onTouchStart={(e) => {
-                    const t = e.touches[0];
-                    handlePointerDown(t.clientX, t.clientY);
-                  }}
-                  onTouchMove={(e) => {
-                    const t = e.touches[0];
-                    handlePointerMove(t.clientX, t.clientY);
-                  }}
-                  onTouchEnd={handlePointerUp}
-                />
-              </div>
-            </div>
-
-            <div className="flex justify-between items-center pt-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setImageSrc(null);
-                  setStep("upload");
-                }}
-                className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm font-medium border border-gray-200"
-              >
-                रद्द करें
-              </button>
-              <button
-                type="button"
-                onClick={runStraighten}
-                disabled={processing}
-                className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-sm shadow-md transition-all"
-              >
-                {processing ? "सीधा हो रहा है..." : "कागज़ सीधा करें व आगे बढ़ें →"}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Step 3: Controls, Orientation & 10-200 KB Slider */}
-        {step === "filter" && (
-          <div className="bg-white rounded-2xl p-4 sm:p-6 space-y-6 border border-gray-200 shadow-sm">
+        {/* फ़ाइलें लोड होने पर लेआउट */}
+        {pages.length > 0 && (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
             
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-gray-50 p-4 rounded-xl border border-gray-200">
+            {/* बायाँ हिस्सा: ग्रिड */}
+            <div className="lg:col-span-8 bg-white border border-slate-200 rounded-2xl p-3 sm:p-4 shadow-xs space-y-3">
               
-              {/* Orientation Mode */}
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-gray-700 block">
-                  A4 पेज मोड (Orientation)
+              <div className="flex items-center justify-between pb-2 border-b border-slate-100 text-xs">
+                <span className="font-bold text-slate-800 flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                  कुल <span className="text-blue-600 font-black">{pages.length}</span> पेज जुड़े
+                </span>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    ref={addMoreInputRef}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={(e) => handleFiles(e.target.files, true)}
+                    className="hidden"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => addMoreInputRef.current?.click()}
+                    className="px-2.5 py-1 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg font-bold text-xs border border-blue-200 flex items-center gap-1 cursor-pointer"
+                  >
+                    <span>➕</span> और जोड़ें
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setPages([]); setLastGeneratedPdfBlob(null); }}
+                    className="px-2.5 py-1 bg-rose-50 text-rose-700 hover:bg-rose-100 rounded-lg font-bold text-xs border border-rose-200 cursor-pointer"
+                  >
+                    सब हटाएँ
+                  </button>
+                </div>
+              </div>
+
+              {/* ग्रिड कार्ड्स */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {pages.map((page, idx) => (
+                  <div
+                    key={page.id}
+                    className="bg-slate-50 border border-slate-300 rounded-xl p-2 relative flex flex-col justify-between shadow-xs hover:border-blue-400 transition"
+                  >
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="text-[10px] font-black bg-slate-900 text-white px-2 py-0.5 rounded-md">
+                        पेज {idx + 1}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => removePage(page.id)}
+                        className="w-5 h-5 flex items-center justify-center bg-rose-100 text-rose-700 rounded-full hover:bg-rose-200 font-black text-xs cursor-pointer"
+                        title="हटाएँ"
+                      >
+                        ✕
+                      </button>
+                    </div>
+
+                    <div className="h-36 sm:h-44 w-full bg-white rounded-lg border border-slate-200 overflow-hidden flex items-center justify-center p-1 my-1">
+                      <img
+                        src={page.dataUrl}
+                        alt={`पेज ${idx + 1}`}
+                        className="max-h-full max-w-full object-contain"
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between pt-1 gap-1">
+                      <button
+                        type="button"
+                        disabled={idx === 0}
+                        onClick={() => movePage(idx, "left")}
+                        className={`flex-1 py-1 rounded text-xs font-bold border flex items-center justify-center ${
+                          idx === 0
+                            ? "bg-slate-100 text-slate-300 border-slate-200 cursor-not-allowed"
+                            : "bg-white text-slate-700 border-slate-300 hover:bg-slate-100 cursor-pointer"
+                        }`}
+                        title="आगे खिसकाएँ"
+                      >
+                        ← आगे
+                      </button>
+                      <button
+                        type="button"
+                        disabled={idx === pages.length - 1}
+                        onClick={() => movePage(idx, "right")}
+                        className={`flex-1 py-1 rounded text-xs font-bold border flex items-center justify-center ${
+                          idx === pages.length - 1
+                            ? "bg-slate-100 text-slate-300 border-slate-200 cursor-not-allowed"
+                            : "bg-white text-slate-700 border-slate-300 hover:bg-slate-100 cursor-pointer"
+                        }`}
+                        title="पीछे खिसकाएँ"
+                      >
+                        पीछे →
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+            </div>
+
+            {/* दायाँ हिस्सा: सेटिंग्स शेल्फ़ */}
+            <div className="lg:col-span-4 bg-white border-2 border-slate-900 rounded-2xl p-3.5 sm:p-4 shadow-md space-y-4">
+              
+              <div className="border-b pb-1.5 flex justify-between items-center">
+                <span className="text-xs font-black text-slate-900 uppercase tracking-wide">
+                  PDF सेटिंग्स (Controls)
+                </span>
+                <span className="text-[11px] font-bold text-slate-500">A4 मानक</span>
+              </div>
+
+              {/* 1. ओरिएंटेशन */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700 block">
+                  पेज लेआउट (Orientation):
                 </label>
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
-                    onClick={() => setOrientation("portrait")}
-                    className={`py-2 px-3 rounded-lg text-xs sm:text-sm font-medium border flex items-center justify-center gap-2 transition-all ${
+                    onClick={() => { setOrientation("portrait"); setLastGeneratedPdfBlob(null); }}
+                    className={`py-2 px-2 text-xs font-bold rounded-xl border flex items-center justify-center gap-1.5 transition cursor-pointer ${
                       orientation === "portrait"
-                        ? "bg-emerald-600 border-emerald-600 text-white shadow-sm font-semibold"
-                        : "bg-white border-gray-300 text-gray-700 hover:bg-gray-100"
+                        ? "bg-slate-900 text-white border-slate-900 shadow-xs"
+                        : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100"
                     }`}
                   >
-                    <span>📄 Portrait (खड़ा A4)</span>
+                    <span>📄</span> Portrait (खड़ा)
                   </button>
                   <button
                     type="button"
-                    onClick={() => setOrientation("landscape")}
-                    className={`py-2 px-3 rounded-lg text-xs sm:text-sm font-medium border flex items-center justify-center gap-2 transition-all ${
+                    onClick={() => { setOrientation("landscape"); setLastGeneratedPdfBlob(null); }}
+                    className={`py-2 px-2 text-xs font-bold rounded-xl border flex items-center justify-center gap-1.5 transition cursor-pointer ${
                       orientation === "landscape"
-                        ? "bg-emerald-600 border-emerald-600 text-white shadow-sm font-semibold"
-                        : "bg-white border-gray-300 text-gray-700 hover:bg-gray-100"
+                        ? "bg-slate-900 text-white border-slate-900 shadow-xs"
+                        : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100"
                     }`}
                   >
-                    <span>📃 Landscape (आड़ा A4)</span>
+                    <span>📃</span> Landscape (आड़ा)
                   </button>
                 </div>
               </div>
 
-              {/* Exact Target KB Slider */}
-              <div className="space-y-2">
-                <div className="flex justify-between items-center text-sm font-semibold text-gray-700">
-                  <span>फ़ाइल साइज़ लिमिट (10 KB से 200 KB):</span>
-                  <span className="text-emerald-700 font-mono font-bold bg-white px-2.5 py-0.5 rounded border border-gray-200 shadow-sm">
-                    {targetKb} KB
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min="10"
-                  max="200"
-                  step="5"
-                  value={targetKb}
-                  onChange={(e) => setTargetKb(Number(e.target.value))}
-                  className="w-full accent-emerald-600 h-2 bg-gray-200 rounded-lg cursor-pointer"
-                />
-                <div className="flex justify-between text-[11px] text-gray-500 font-mono font-medium">
-                  <span>10 KB</span>
-                  <span>50 KB</span>
-                  <span>100 KB</span>
-                  <span>150 KB</span>
-                  <span>200 KB</span>
-                </div>
-              </div>
-
-              {/* Filters */}
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-gray-700 block">फ़िल्टर मोड</label>
-                <div className="grid grid-cols-4 gap-1.5">
-                  {(["magic", "bw", "grayscale", "original"] as FilterMode[]).map((m) => (
+              {/* 2. मार्जिन */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700 block">
+                  पेज मार्जिन:
+                </label>
+                <div className="grid grid-cols-3 gap-1.5 text-[11px]">
+                  {[
+                    { label: "0mm (पूर्ण)", val: 0 },
+                    { label: "5mm (छोटा)", val: 5 },
+                    { label: "10mm (बड़ा)", val: 10 },
+                  ].map((m) => (
                     <button
-                      key={m}
+                      key={m.val}
                       type="button"
-                      onClick={() => setFilter(m)}
-                      className={`py-1.5 rounded-lg text-xs capitalize transition-all border ${
-                        filter === m
-                          ? "bg-emerald-600 border-emerald-600 text-white font-medium shadow-sm"
-                          : "bg-white border-gray-300 text-gray-600 hover:bg-gray-100"
+                      onClick={() => { setMargin(m.val); setLastGeneratedPdfBlob(null); }}
+                      className={`py-1.5 font-bold rounded-lg border text-center transition cursor-pointer ${
+                        margin === m.val
+                          ? "bg-blue-600 text-white border-blue-600 shadow-xs"
+                          : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100"
                       }`}
                     >
-                      {m === "magic" ? "मैजिक सफ़ेद" : m === "bw" ? "B&W" : m === "grayscale" ? "ग्रे" : "मूल"}
+                      {m.label}
                     </button>
                   ))}
                 </div>
               </div>
 
-              {/* Live Brightness & Contrast */}
-              <div className="space-y-3">
-                <div className="flex items-center gap-3">
-                  <span className="text-xs font-semibold text-gray-600 w-16">सफेदी:</span>
-                  <input
-                    type="range"
-                    min="-40"
-                    max="60"
-                    value={brightness}
-                    onChange={(e) => setBrightness(Number(e.target.value))}
-                    className="w-full accent-emerald-600 h-1.5 bg-gray-200 rounded cursor-pointer"
-                  />
-                  <span className="text-xs font-mono font-bold text-gray-700 w-8 text-right">{brightness}</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-xs font-semibold text-gray-600 w-16">कंट्रास्ट:</span>
-                  <input
-                    type="range"
-                    min="0"
-                    max="80"
-                    value={contrast}
-                    onChange={(e) => setContrast(Number(e.target.value))}
-                    className="w-full accent-emerald-600 h-1.5 bg-gray-200 rounded cursor-pointer"
-                  />
-                  <span className="text-xs font-mono font-bold text-gray-700 w-8 text-right">{contrast}</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Document Preview Canvas */}
-            <div className="space-y-2">
-              <div className="flex justify-between items-center text-xs font-medium text-gray-600">
-                <span>लाइव प्रीव्यू ({orientation === "portrait" ? "खड़ा A4" : "आड़ा A4"})</span>
-                {actualKb && (
-                  <span className="text-emerald-700 font-mono font-bold">
-                    तैयार PDF: ~{actualKb} KB
+              {/* 3. पक्का साइज़ नियम */}
+              <div className="bg-blue-50/70 p-3 rounded-xl border border-blue-200 space-y-2.5">
+                <div className="flex justify-between items-center text-xs font-bold text-blue-950">
+                  <span>टारगेट साइज़ नियम:</span>
+                  <span className="bg-blue-600 text-white px-2 py-0.5 rounded-full text-[11px] font-black">
+                    {sizeMode === "original"
+                      ? "मूल / HD"
+                      : sizeMode === "custom"
+                      ? `कस्टम: ${customKb} KB`
+                      : `${sizeMode} KB के अंदर`}
                   </span>
+                </div>
+
+                <div className="grid grid-cols-3 gap-1.5 text-[11px]">
+                  {[
+                    { id: "50", label: "अंडर 50 KB" },
+                    { id: "100", label: "अंडर 100 KB" },
+                    { id: "200", label: "अंडर 200 KB" },
+                    { id: "300", label: "अंडर 300 KB" },
+                    { id: "original", label: "मूल / HD" },
+                    { id: "custom", label: "✏️ कस्टम KB" },
+                  ].map((btn) => (
+                    <button
+                      key={btn.id}
+                      type="button"
+                      onClick={() => {
+                        setSizeMode(btn.id as PresetMode);
+                        setLastGeneratedPdfBlob(null);
+                      }}
+                      className={`py-2 px-1 font-bold rounded-lg border text-center transition cursor-pointer ${
+                        sizeMode === btn.id
+                          ? "bg-blue-700 text-white border-blue-700 shadow-xs"
+                          : "bg-white text-blue-950 border-blue-200 hover:bg-blue-100"
+                      }`}
+                    >
+                      {btn.label}
+                    </button>
+                  ))}
+                </div>
+
+                {sizeMode === "custom" ? (
+                  <div className="pt-2 border-t border-blue-200 space-y-1">
+                    <div className="flex justify-between text-xs font-bold text-blue-900">
+                      <span>कस्टम साइज़ चुनें:</span>
+                      <span>{customKb} KB</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="20"
+                      max="1000"
+                      step="10"
+                      value={customKb}
+                      onChange={(e) => {
+                        setCustomKb(Number(e.target.value));
+                        setLastGeneratedPdfBlob(null);
+                      }}
+                      className="w-full accent-blue-700 cursor-pointer"
+                    />
+                  </div>
+                ) : (
+                  <p className="text-[10px] text-blue-800 font-medium">
+                    🔒 {sizeMode === "original" ? "मूल हाई-क्वालिटी सुरक्षित है।" : `PDF का कुल साइज़ ${sizeMode} KB के भीतर ही रहेगा।`}
+                  </p>
                 )}
               </div>
-              <div className="max-h-[50vh] overflow-auto border border-gray-200 rounded-xl bg-gray-100 p-3 flex justify-center">
-                <canvas ref={previewCanvasRef} className="max-h-[46vh] w-auto block rounded shadow border border-gray-300" />
-              </div>
-            </div>
 
-            {/* Action Buttons */}
-            <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => setStep("crop")}
-                className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm font-medium border border-gray-200"
-              >
-                ← दोबारा क्रॉप करें
-              </button>
-
-              <div className="flex items-center gap-3">
-                {jpgDownloadUrl && (
-                  <a
-                    href={jpgDownloadUrl}
-                    download="document.jpg"
-                    className="px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-800 font-semibold rounded-lg text-sm border border-gray-300 shadow-sm transition-all"
+              {/* 4. एक ही लाइन में दोनों बटन (डाउनलोड और शेयर) */}
+              <div className="pt-2 space-y-2">
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
+                  
+                  {/* डाउनलोड बटन */}
+                  <button
+                    type="button"
+                    disabled={isProcessing}
+                    onClick={() => handleProcessPdf(true)}
+                    className={`sm:col-span-7 py-3 px-2 rounded-xl font-black text-xs sm:text-sm text-white shadow-md flex items-center justify-center gap-1.5 transition transform active:scale-95 cursor-pointer ${
+                      isProcessing
+                        ? "bg-slate-400 cursor-not-allowed"
+                        : "bg-emerald-600 hover:bg-emerald-700"
+                    }`}
                   >
-                    डाउनलोड JPG
-                  </a>
-                )}
+                    {isProcessing ? (
+                      <span>⏳ {progressMsg}</span>
+                    ) : (
+                      <>
+                        <span>📥</span>
+                        <span>डाउनलोड PDF</span>
+                        <span className="bg-emerald-800 text-emerald-100 text-[10px] px-1.5 py-0.5 rounded font-bold ml-0.5">
+                          {currentDisplayKb}
+                        </span>
+                      </>
+                    )}
+                  </button>
 
-                {pdfDownloadUrl && (
-                  <a
-                    href={pdfDownloadUrl}
-                    download={`document-${targetKb}kb-${orientation}.pdf`}
-                    className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-sm shadow-md transition-all flex items-center gap-2"
+                  {/* शेयर बटन */}
+                  <button
+                    type="button"
+                    disabled={isProcessing}
+                    onClick={handleSharePdf}
+                    className="sm:col-span-5 py-3 px-2 rounded-xl font-bold text-xs sm:text-sm bg-blue-600 hover:bg-blue-700 text-white shadow-md flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer"
                   >
-                    {pdfGenerating ? "तैयार हो रहा है..." : `डाउनलोड A4 PDF (${targetKb} KB)`}
-                  </a>
+                    <span>🔗</span>
+                    <span>शेयर करें</span>
+                  </button>
+
+                </div>
+
+                {lastGeneratedPdfBlob && (
+                  <p className="text-center text-[11px] font-bold text-emerald-700 bg-emerald-50 py-1 rounded-lg border border-emerald-200">
+                    ✓ फ़ाइल साइज़: {Math.round(lastGeneratedPdfBlob.size / 1024)} KB (डाउनलोड संपन्न)
+                  </p>
                 )}
               </div>
+
             </div>
 
           </div>
         )}
 
       </div>
-    </div>
+    </main>
   );
 }
