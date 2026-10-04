@@ -29,7 +29,7 @@ const cscToolsList: CscTool[] = [
   },
   {
     id: 'pdf-compressor',
-    title: 'सरकारी पोर्टल PDF कंप्रेसर',
+    title: 'PDF कंप्रेसर',
     desc: 'मार्कशीट और सर्टिफिकेट PDF को बिना टेक्स्ट धुंधला किए सीधे 100KB, 200KB या 300KB की तय लिमिट में कंप्रेस करें।',
     badge: '100KB - 200KB Lock',
     badgeColor: 'bg-rose-100 text-rose-800 border-rose-200',

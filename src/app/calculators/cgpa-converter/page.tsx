@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import Link from 'next/link';
 
 export default function CGPAConverter() {
   const [cgpa, setCgpa] = useState('');
@@ -21,6 +22,19 @@ export default function CGPAConverter() {
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-8">
+      <div className="mb-6 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Link href="/calculators" className="text-xs font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 px-3 py-1.5 rounded-xl border border-indigo-200 transition active:scale-95">
+            ← कैलकुलेटर हब
+          </Link>
+          <Link href="/" className="text-xs font-bold text-slate-600 hover:text-slate-800 bg-slate-100 px-3 py-1.5 rounded-xl border border-slate-200 transition active:scale-95">
+            🏠 होम पेज
+          </Link>
+        </div>
+        <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
+          CGPA Converter
+        </span>
+      </div>
       <div className="bg-white p-6 sm:p-8 rounded-2xl border border-slate-200 shadow-sm">
         <div className="inline-block px-3 py-1 bg-amber-100 text-amber-800 text-xs font-bold rounded-full mb-3">
           Academic Converter (शैक्षणिक)

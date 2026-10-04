@@ -1,0 +1,979 @@
+"use client";
+
+import React, { useState, useRef, useEffect } from "react";
+import Link from "next/link";
+
+interface Point {
+  x: number;
+  y: number;
+}
+
+type FilterMode = "original" | "magic" | "bw" | "grayscale";
+type PageOrientation = "portrait" | "landscape";
+
+export default function DocumentScannerPage() {
+  const [step, setStep] = useState<"capture" | "crop" | "filter">("capture");
+  const [imageSrc, setImageSrc] = useState<string | null>(null);
+  const [filter, setFilter] = useState<FilterMode>("magic");
+  const [orientation, setOrientation] = useState<PageOrientation>("portrait");
+  const [brightness, setBrightness] = useState<number>(0);
+  const [contrast, setContrast] = useState<number>(20);
+  const [targetKb, setTargetKb] = useState<number>(250);
+  const [actualKb, setActualKb] = useState<number>(250);
+  const [processing, setProcessing] = useState<boolean>(false);
+  const [pdfGenerating, setPdfGenerating] = useState<boolean>(false);
+  const [sharing, setSharing] = useState<boolean>(false);
+  const [jpgDownloadUrl, setJpgDownloadUrl] = useState<string | null>(null);
+
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const baseProcessedCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const imgRef = useRef<HTMLImageElement | null>(null);
+
+  const cornersRef = useRef<Point[]>([]);
+  const activePointIdxRef = useRef<number | null>(null);
+  const kbDebounceRef = useRef<NodeJS.Timeout | null>(null);
+
+  // 1. फ़ाइल इनपुट
+  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const dataUrl = event.target?.result as string;
+      if (!dataUrl) return;
+
+      const img = new Image();
+      img.onload = () => {
+        imgRef.current = img;
+        setImageSrc(dataUrl);
+        setStep("crop");
+
+        setTimeout(() => {
+          const cvs = canvasRef.current;
+          if (cvs) {
+            cvs.width = img.width;
+            cvs.height = img.height;
+
+            const padX = img.width * 0.08;
+            const padY = img.height * 0.08;
+
+            cornersRef.current = [
+              { x: padX, y: padY },
+              { x: img.width - padX, y: padY },
+              { x: img.width - padX, y: img.height - padY },
+              { x: padX, y: img.height - padY }
+            ];
+
+            drawCropCanvas(null);
+          }
+        }, 80);
+      };
+      img.src = dataUrl;
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
+
+  // 90° रोटेट
+  const rotateSourceImage = () => {
+    const img = imgRef.current;
+    if (!img) return;
+
+    const tempCanvas = document.createElement("canvas");
+    tempCanvas.width = img.height;
+    tempCanvas.height = img.width;
+    const ctx = tempCanvas.getContext("2d");
+    if (!ctx) return;
+
+    ctx.translate(tempCanvas.width / 2, tempCanvas.height / 2);
+    ctx.rotate((90 * Math.PI) / 180);
+    ctx.drawImage(img, -img.width / 2, -img.height / 2);
+
+    const rotatedData = tempCanvas.toDataURL("image/jpeg", 0.95);
+    const newImg = new Image();
+    newImg.onload = () => {
+      imgRef.current = newImg;
+      setImageSrc(rotatedData);
+
+      const cvs = canvasRef.current;
+      if (cvs) {
+        cvs.width = newImg.width;
+        cvs.height = newImg.height;
+
+        const padX = newImg.width * 0.08;
+        const padY = newImg.height * 0.08;
+
+        cornersRef.current = [
+          { x: padX, y: padY },
+          { x: newImg.width - padX, y: padY },
+          { x: newImg.width - padX, y: newImg.height - padY },
+          { x: padX, y: newImg.height - padY }
+        ];
+
+        drawCropCanvas(null);
+      }
+    };
+    newImg.src = rotatedData;
+  };
+
+  // 2. क्रॉपर रेंडरर (4 स्वतंत्र कोने + 2.2x मैग्नीफ़ायर)
+  const drawCropCanvas = (activeIdx: number | null = activePointIdxRef.current) => {
+    const cvs = canvasRef.current;
+    const img = imgRef.current;
+    if (!cvs || !img) return;
+    const ctx = cvs.getContext("2d");
+    if (!ctx) return;
+
+    ctx.clearRect(0, 0, cvs.width, cvs.height);
+    ctx.drawImage(img, 0, 0, cvs.width, cvs.height);
+
+    const pts = cornersRef.current;
+    if (!pts || pts.length !== 4) return;
+
+    // डार्क ओवरले
+    ctx.fillStyle = "rgba(15, 23, 42, 0.45)";
+    ctx.beginPath();
+    ctx.rect(0, 0, cvs.width, cvs.height);
+    ctx.moveTo(pts[0].x, pts[0].y);
+    ctx.lineTo(pts[3].x, pts[3].y);
+    ctx.lineTo(pts[2].x, pts[2].y);
+    ctx.lineTo(pts[1].x, pts[1].y);
+    ctx.closePath();
+    ctx.fill("evenodd");
+
+    // बाउंड्री लाइन
+    ctx.strokeStyle = "#2563eb";
+    ctx.lineWidth = Math.max(3, Math.round(cvs.width / 320));
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    ctx.lineTo(pts[1].x, pts[1].y);
+    ctx.lineTo(pts[2].x, pts[2].y);
+    ctx.lineTo(pts[3].x, pts[3].y);
+    ctx.closePath();
+    ctx.stroke();
+
+    // 4 गोल हैंडल
+    const baseRadius = Math.max(18, Math.round(cvs.width / 42));
+    pts.forEach((p, i) => {
+      const isDragging = activeIdx === i;
+      const r = isDragging ? baseRadius * 1.3 : baseRadius;
+
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r + 2, 0, 2 * Math.PI);
+      ctx.fillStyle = "rgba(0, 0, 0, 0.35)";
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r, 0, 2 * Math.PI);
+      ctx.fillStyle = isDragging ? "#16a34a" : "#2563eb";
+      ctx.fill();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = "#ffffff";
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r * 0.35, 0, 2 * Math.PI);
+      ctx.fillStyle = "#ffffff";
+      ctx.fill();
+    });
+
+    // 2.2x मैग्नीफ़ायर लेंस
+    if (activeIdx !== null && pts[activeIdx]) {
+      const cur = pts[activeIdx];
+      const lensRadius = Math.max(52, Math.round(cvs.width / 16));
+      const zoom = 2.2;
+
+      // स्मार्ट आउटर मैग्नीफायर: लेंस हमेशा उंगली और एक्टिव कोने के विपरीत बाहर रहेगा
+      // ताकि उंगली और डॉक्यूमेंट कभी भी लेंस के प्रीव्यू को न ढकें
+      // कॉम्पैक्ट आउटर लेंस: उंगली से हमेशा ऊपर और बाहर की तरफ दिखेगा
+      let lensX = cur.x;
+      let lensY = cur.y - lensRadius - 55;
+      
+      // यदि उंगली स्क्रीन के बिल्कुल ऊपरी सिरे पर है तो लेंस को थोड़ा साइड में रखें
+      if (lensY - lensRadius < 10) {
+        lensY = cur.y + lensRadius + 55;
+      }
+      
+      // बाएँ-दाएँ किनारों से बाहर न भागे
+      lensX = Math.max(lensRadius + 10, Math.min(cvs.width - lensRadius - 10, lensX));
+      lensY = Math.max(lensRadius + 10, Math.min(cvs.height - lensRadius - 10, lensY));
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(lensX, lensY, lensRadius, 0, 2 * Math.PI);
+      ctx.closePath();
+      ctx.clip();
+
+      ctx.drawImage(
+        img,
+        (cur.x / cvs.width) * img.width - (lensRadius / zoom) * (img.width / cvs.width),
+        (cur.y / cvs.height) * img.height - (lensRadius / zoom) * (img.height / cvs.height),
+        ((lensRadius * 2) / zoom) * (img.width / cvs.width),
+        ((lensRadius * 2) / zoom) * (img.height / cvs.height),
+        lensX - lensRadius,
+        lensY - lensRadius,
+        lensRadius * 2,
+        lensRadius * 2
+      );
+
+      ctx.strokeStyle = "#ef4444";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(lensX - 22, lensY);
+      ctx.lineTo(lensX + 22, lensY);
+      ctx.moveTo(lensX, lensY - 22);
+      ctx.lineTo(lensX + 22, lensY);
+      ctx.stroke();
+
+      ctx.restore();
+
+      ctx.beginPath();
+      ctx.arc(lensX, lensY, lensRadius, 0, 2 * Math.PI);
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = "#2563eb";
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.arc(lensX, lensY, lensRadius + 2, 0, 2 * Math.PI);
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = "#ffffff";
+      ctx.stroke();
+    }
+  };
+
+  // 3. टच व कॉर्नर कोऑर्डिनेट मैपिंग
+  const getCanvasCoords = (clientX: number, clientY: number) => {
+    const cvs = canvasRef.current;
+    if (!cvs) return { x: 0, y: 0 };
+    const rect = cvs.getBoundingClientRect();
+    return {
+      x: (clientX - rect.left) * (cvs.width / rect.width),
+      y: (clientY - rect.top) * (cvs.height / rect.height)
+    };
+  };
+
+  const handlePointerDown = (clientX: number, clientY: number) => {
+    const { x, y } = getCanvasCoords(clientX, clientY);
+    const cvs = canvasRef.current;
+    if (!cvs) return;
+
+    let foundIdx: number | null = null;
+    let minDist = Math.max(75, cvs.width / 10);
+
+    cornersRef.current.forEach((pt, idx) => {
+      const dist = Math.hypot(pt.x - x, pt.y - y);
+      if (dist < minDist) {
+        minDist = dist;
+        foundIdx = idx;
+      }
+    });
+
+    if (foundIdx !== null) {
+      activePointIdxRef.current = foundIdx;
+      drawCropCanvas(foundIdx);
+    }
+  };
+
+  const handlePointerMove = (clientX: number, clientY: number) => {
+    if (activePointIdxRef.current === null) return;
+    const cvs = canvasRef.current;
+    if (!cvs) return;
+
+    const { x, y } = getCanvasCoords(clientX, clientY);
+    const boundedX = Math.max(0, Math.min(cvs.width, x));
+    const boundedY = Math.max(0, Math.min(cvs.height, y));
+
+    cornersRef.current[activePointIdxRef.current] = { x: boundedX, y: boundedY };
+    requestAnimationFrame(() => drawCropCanvas(activePointIdxRef.current));
+  };
+
+  const handlePointerUp = () => {
+    if (activePointIdxRef.current !== null) {
+      activePointIdxRef.current = null;
+      drawCropCanvas(null);
+    }
+  };
+
+  useEffect(() => {
+    const cvs = canvasRef.current;
+    if (!cvs || step !== "crop") return;
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length === 0) return;
+      const t = e.touches[0];
+      handlePointerDown(t.clientX, t.clientY);
+      if (activePointIdxRef.current !== null && e.cancelable) e.preventDefault();
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (activePointIdxRef.current === null) return;
+      if (e.cancelable) e.preventDefault();
+      const t = e.touches[0];
+      handlePointerMove(t.clientX, t.clientY);
+    };
+
+    const onTouchEnd = () => handlePointerUp();
+
+    cvs.addEventListener("touchstart", onTouchStart, { passive: false });
+    cvs.addEventListener("touchmove", onTouchMove, { passive: false });
+    cvs.addEventListener("touchend", onTouchEnd);
+    cvs.addEventListener("touchcancel", onTouchEnd);
+
+    return () => {
+      cvs.removeEventListener("touchstart", onTouchStart);
+      cvs.removeEventListener("touchmove", onTouchMove);
+      cvs.removeEventListener("touchend", onTouchEnd);
+      cvs.removeEventListener("touchcancel", onTouchEnd);
+    };
+  }, [step]);
+
+  // 4. क्रॉप और सीधा A4 ऑटो-फिट इंजन
+  const runCropToA4 = () => {
+    const img = imgRef.current;
+    if (!img) return;
+    setProcessing(true);
+
+    setTimeout(() => {
+      try {
+        const pts = cornersRef.current;
+
+        const topW = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+        const botW = Math.hypot(pts[2].x - pts[3].x, pts[2].y - pts[3].y);
+        const leftH = Math.hypot(pts[3].x - pts[0].x, pts[3].y - pts[0].y);
+        const rightH = Math.hypot(pts[2].x - pts[1].x, pts[2].y - pts[1].y);
+
+        const targetW = Math.max(200, Math.round(Math.max(topW, botW)));
+        const targetH = Math.max(200, Math.round(Math.max(leftH, rightH)));
+
+        const straightCanvas = document.createElement("canvas");
+        straightCanvas.width = targetW;
+        straightCanvas.height = targetH;
+        const sCtx = straightCanvas.getContext("2d");
+        if (!sCtx) return;
+
+        sCtx.fillStyle = "#ffffff";
+        sCtx.fillRect(0, 0, targetW, targetH);
+
+        const srcCanvas = document.createElement("canvas");
+        srcCanvas.width = img.width;
+        srcCanvas.height = img.height;
+        const srcCtx = srcCanvas.getContext("2d");
+        if (!srcCtx) return;
+        srcCtx.drawImage(img, 0, 0);
+
+        const slices = 80;
+        for (let i = 0; i < slices; i++) {
+          const t1 = i / slices;
+          const t2 = (i + 1) / slices;
+
+          const leftX1 = pts[0].x + (pts[3].x - pts[0].x) * t1;
+          const leftY1 = pts[0].y + (pts[3].y - pts[0].y) * t1;
+          const rightX1 = pts[1].x + (pts[2].x - pts[1].x) * t1;
+          const rightY1 = pts[1].y + (pts[2].y - pts[1].y) * t1;
+
+          const destY1 = t1 * targetH;
+          const destY2 = t2 * targetH;
+          const destH = destY2 - destY1;
+
+          sCtx.save();
+          sCtx.beginPath();
+          sCtx.rect(0, destY1, targetW, destH + 1.5);
+          sCtx.clip();
+
+          const sliceAngle = Math.atan2(rightY1 - leftY1, rightX1 - leftX1);
+          const sliceWidth = Math.hypot(rightX1 - leftX1, rightY1 - leftY1);
+
+          sCtx.translate(0, destY1);
+          sCtx.scale(targetW / sliceWidth, 1);
+          sCtx.rotate(-sliceAngle);
+          sCtx.drawImage(srcCanvas, -leftX1, -leftY1);
+          sCtx.restore();
+        }
+
+        const isLand = orientation === "landscape";
+        const a4Width = isLand ? 1600 : 1200;
+        const a4Height = Math.round(isLand ? a4Width / 1.414 : a4Width * 1.414);
+
+        const outCanvas = document.createElement("canvas");
+        outCanvas.width = a4Width;
+        outCanvas.height = a4Height;
+        const ctx = outCanvas.getContext("2d");
+        if (!ctx) return;
+
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, a4Width, a4Height);
+
+        const scale = Math.min(
+          (a4Width - 40) / targetW,
+          (a4Height - 40) / targetH
+        );
+
+        const fitW = Math.round(targetW * scale);
+        const fitH = Math.round(targetH * scale);
+        const posX = Math.round((a4Width - fitW) / 2);
+        const posY = Math.round((a4Height - fitH) / 2);
+
+        ctx.drawImage(straightCanvas, posX, posY, fitW, fitH);
+
+        baseProcessedCanvasRef.current = outCanvas;
+        processFilterAndCompression(outCanvas, filter, brightness, contrast, targetKb);
+        setStep("filter");
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setProcessing(false);
+      }
+    }, 40);
+  };
+
+  const handleBackToCrop = () => {
+    setStep("crop");
+    setTimeout(() => {
+      const cvs = canvasRef.current;
+      const img = imgRef.current;
+      if (cvs && img) {
+        cvs.width = img.width;
+        cvs.height = img.height;
+        drawCropCanvas(null);
+      }
+    }, 60);
+  };
+
+  const handleOrientationChange = (newMode: PageOrientation) => {
+    if (newMode === orientation) return;
+    setOrientation(newMode);
+
+    const baseCvs = baseProcessedCanvasRef.current;
+    if (!baseCvs) return;
+
+    const rotatedCvs = document.createElement("canvas");
+    rotatedCvs.width = baseCvs.height;
+    rotatedCvs.height = baseCvs.width;
+    const ctx = rotatedCvs.getContext("2d");
+    if (!ctx) return;
+
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, rotatedCvs.width, rotatedCvs.height);
+
+    ctx.translate(rotatedCvs.width / 2, rotatedCvs.height / 2);
+    ctx.rotate((90 * Math.PI) / 180);
+    ctx.drawImage(baseCvs, -baseCvs.width / 2, -baseCvs.height / 2);
+
+    baseProcessedCanvasRef.current = rotatedCvs;
+    processFilterAndCompression(rotatedCvs, filter, brightness, contrast, targetKb);
+  };
+
+  // 5. सटीक पिक्सेल-लेवल फ़िल्टर व कंप्रेशन
+  const processFilterAndCompression = (
+    baseCanvas: HTMLCanvasElement,
+    mode: FilterMode,
+    bVal: number,
+    cVal: number,
+    desiredKb: number
+  ) => {
+    let scale = 1;
+    if (desiredKb < 80) scale = 0.65;
+    else if (desiredKb < 150) scale = 0.80;
+    else if (desiredKb < 250) scale = 0.90;
+
+    const finalCanvas = document.createElement("canvas");
+    finalCanvas.width = Math.round(baseCanvas.width * scale);
+    finalCanvas.height = Math.round(baseCanvas.height * scale);
+    const ctx = finalCanvas.getContext("2d");
+    if (!ctx) return baseCanvas.toDataURL("image/jpeg", 0.7);
+
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, finalCanvas.width, finalCanvas.height);
+    ctx.drawImage(baseCanvas, 0, 0, finalCanvas.width, finalCanvas.height);
+
+    const imgData = ctx.getImageData(0, 0, finalCanvas.width, finalCanvas.height);
+    const d = imgData.data;
+
+    const factor = (259 * (cVal * 1.5 + 255)) / (255 * (259 - cVal * 1.5));
+    const brightShift = bVal * 2.2;
+
+    for (let i = 0; i < d.length; i += 4) {
+      let r = d[i];
+      let g = d[i + 1];
+      let b = d[i + 2];
+
+      const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+
+      if (mode === "grayscale") {
+        r = g = b = gray;
+      } else if (mode === "bw") {
+        const threshold = 132 - bVal * 1.6;
+        const val = gray > threshold ? 255 : 0;
+        r = g = b = val;
+      } else if (mode === "magic") {
+        const boost = (gray / 255) * 45;
+        r = Math.min(255, r + boost);
+        g = Math.min(255, g + boost);
+        b = Math.min(255, b + boost);
+      }
+
+      if (mode !== "bw") {
+        r = factor * (r - 128) + 128 + brightShift;
+        g = factor * (g - 128) + 128 + brightShift;
+        b = factor * (b - 128) + 128 + brightShift;
+
+        r = Math.min(255, Math.max(0, r));
+        g = Math.min(255, Math.max(0, g));
+        b = Math.min(255, Math.max(0, b));
+      }
+
+      d[i] = r;
+      d[i + 1] = g;
+      d[i + 2] = b;
+    }
+
+    ctx.putImageData(imgData, 0, 0);
+
+    let minQ = 0.15;
+    let maxQ = 0.96;
+    let bestUrl = finalCanvas.toDataURL("image/jpeg", 0.75);
+    let bestKb = Math.round((bestUrl.length * 3) / 4 / 1024);
+
+    for (let i = 0; i < 5; i++) {
+      const midQ = (minQ + maxQ) / 2;
+      const testUrl = finalCanvas.toDataURL("image/jpeg", midQ);
+      const testKb = Math.round((testUrl.length * 3) / 4 / 1024);
+
+      bestUrl = testUrl;
+      bestKb = testKb;
+
+      if (testKb > desiredKb) maxQ = midQ;
+      else minQ = midQ;
+    }
+
+    setActualKb(bestKb);
+    setJpgDownloadUrl(bestUrl);
+    return bestUrl;
+  };
+
+  const handleSliderChange = (newFilter: FilterMode, newB: number, newC: number, newKb: number) => {
+    setFilter(newFilter);
+    setBrightness(newB);
+    setContrast(newC);
+    setTargetKb(newKb);
+
+    if (kbDebounceRef.current) clearTimeout(kbDebounceRef.current);
+    kbDebounceRef.current = setTimeout(() => {
+      const canvas = baseProcessedCanvasRef.current;
+      if (canvas) {
+        processFilterAndCompression(canvas, newFilter, newB, newC, newKb);
+      }
+    }, 60);
+  };
+
+  // 6. PDF डाउनलोड
+  const generateA4Pdf = async () => {
+    if (!jpgDownloadUrl) return;
+    setPdfGenerating(true);
+    try {
+      const { jsPDF } = await import("jspdf");
+      const isLand = orientation === "landscape";
+      const pdf = new jsPDF(isLand ? "l" : "p", "mm", "a4");
+      const pdfW = isLand ? 297 : 210;
+      const pdfH = isLand ? 210 : 297;
+
+      const img = new Image();
+      img.src = jpgDownloadUrl;
+      img.onload = () => {
+        const ratio = img.width / img.height;
+        let printW = pdfW - 16;
+        let printH = printW / ratio;
+
+        if (printH > pdfH - 16) {
+          printH = pdfH - 16;
+          printW = printH * ratio;
+        }
+
+        const posX = (pdfW - printW) / 2;
+        const posY = (pdfH - printH) / 2;
+
+        pdf.addImage(jpgDownloadUrl, "JPEG", posX, posY, printW, printH);
+        pdf.save(`examsewa-scanned-${orientation}-a4.pdf`);
+        setPdfGenerating(false);
+      };
+    } catch {
+      alert("PDF बनाने में त्रुटि हुई।");
+      setPdfGenerating(false);
+    }
+  };
+
+  // 7. 📤 नेटिव शेयर सिस्टम (WhatsApp, Bluetooth, Gmail आदि)
+  const handleShareDocument = async () => {
+    if (!jpgDownloadUrl) return;
+    setSharing(true);
+
+    try {
+      // DataURL को फ़ाइल Blob में बदलना
+      const res = await fetch(jpgDownloadUrl);
+      const blob = await res.blob();
+      const fileName = `scanned-document-${actualKb}kb.jpg`;
+      const file = new File([blob], fileName, { type: "image/jpeg" });
+
+      // चेक करें कि क्या मोबाइल का Web Share API फाइल्स सपोर्ट करता है
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: "स्कैन किया गया दस्तावेज़",
+          text: "Smart Document Scanner द्वारा स्कैन किया गया दस्तावेज़",
+        });
+      } else if (navigator.share) {
+        // अगर सिर्फ टेक्स्ट/लिंक शेयर सपोर्टेड है
+        await navigator.share({
+          title: "स्कैन किया गया दस्तावेज़",
+          text: "Smart Document Scanner द्वारा स्कैन किया गया दस्तावेज़",
+        });
+      } else {
+        alert("आपके ब्राउज़र में डायरेक्ट शेयरिंग सपोर्ट नहीं है। कृपया डाउनलोड बटन का उपयोग करें।");
+      }
+    } catch (err: any) {
+      if (err.name !== "AbortError") {
+        console.error("शेयरिंग में त्रुटि:", err);
+      }
+    } finally {
+      setSharing(false);
+    }
+  };
+
+  return (
+    <main className="min-h-screen bg-slate-50 py-2 sm:py-6 px-2 sm:px-4 text-slate-800 select-none">
+      <div className="max-w-6xl mx-auto bg-white p-2.5 sm:p-6 rounded-2xl shadow-sm border border-slate-200">
+        
+        {/* हेडर */}
+        <div className="flex items-center justify-between border-b pb-2 mb-3">
+          <Link href="/" className="text-xs sm:text-sm font-semibold text-blue-600 hover:underline">
+            ← होमपेज
+          </Link>
+          <h1 className="text-base sm:text-xl font-bold text-slate-900 text-center">
+            स्मार्ट डॉक्यूमेंट स्कैनर (Smart Document Scanner)
+          </h1>
+          <div className="w-12"></div>
+        </div>
+
+        {/* STEP 1: CAPTURE OR UPLOAD */}
+        {step === "capture" && (
+          <div className="py-12 max-w-lg mx-auto grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <label className="cursor-pointer p-8 border-2 border-dashed border-blue-400 rounded-2xl bg-blue-50/70 hover:bg-blue-100/70 transition flex flex-col items-center justify-center space-y-3 shadow-sm active:scale-95 text-center">
+              <input
+                type="file"
+                accept="image/*"
+                capture="environment"
+                onChange={handleFile}
+                className="hidden"
+              />
+              <span className="text-5xl">📸</span>
+              <span className="font-bold text-base text-blue-700">कैमरा खोलें</span>
+              <span className="text-xs text-slate-500">सीधे कैमरे से काग़ज़ की फ़ोटो लें</span>
+            </label>
+
+            <label className="cursor-pointer p-8 border-2 border-dashed border-slate-300 rounded-2xl bg-slate-50 hover:bg-slate-100 transition flex flex-col items-center justify-center space-y-3 shadow-sm active:scale-95 text-center">
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleFile}
+                className="hidden"
+              />
+              <span className="text-5xl">📁</span>
+              <span className="font-bold text-base text-slate-700">गैलरी से चुनें</span>
+              <span className="text-xs text-slate-500">गैलरी से फ़ोटो अपलोड करें</span>
+            </label>
+          </div>
+        )}
+
+        {/* STEP 2: क्रॉपर स्क्रीन */}
+        {imageSrc && step === "crop" && (
+          <div className="space-y-2.5 max-w-4xl mx-auto select-none">
+            
+            <div className="bg-blue-50 border border-blue-200 px-3 py-1.5 rounded-xl text-xs text-blue-900 flex items-center justify-between">
+              <span className="font-medium text-[11px] sm:text-xs">👉 चारों कोनों को अलग-अलग खींचकर काग़ज़ पर सेट करें</span>
+              <button
+                type="button"
+                onClick={rotateSourceImage}
+                className="bg-white px-2 py-0.5 rounded-lg border border-blue-300 font-bold hover:bg-blue-100 flex items-center space-x-1 shrink-0 text-xs shadow-sm"
+              >
+                <span>🔄</span>
+                <span>90°</span>
+              </button>
+            </div>
+
+            <div className="border-2 border-slate-900 rounded-2xl p-1 bg-slate-950 shadow-md select-none flex justify-center items-center overflow-hidden max-h-[62vh] sm:max-h-[72vh] lg:max-h-[78vh]">
+              <canvas
+                    ref={canvasRef}
+                    style={{ touchAction: "none" }}
+                    onMouseDown={(e) => handlePointerDown(e.clientX, e.clientY)}
+                    onMouseMove={(e) => handlePointerMove(e.clientX, e.clientY)}
+                    onMouseUp={handlePointerUp}
+                    onTouchStart={(e) => {
+                      if (e.touches.length > 0) {
+                        e.preventDefault();
+                        handlePointerDown(e.touches[0].clientX, e.touches[0].clientY);
+                      }
+                    }}
+                    onTouchMove={(e) => {
+                      if (e.touches.length > 0) {
+                        e.preventDefault();
+                        handlePointerMove(e.touches[0].clientX, e.touches[0].clientY);
+                      }
+                    }}
+                    onTouchEnd={handlePointerUp}
+                    className="block max-w-full max-h-[60vh] sm:max-h-[70vh] lg:max-h-[76vh] w-auto h-auto cursor-crosshair select-none mx-auto" 
+              />
+            </div>
+
+            <div className="flex items-center space-x-2.5 pt-1 pb-4">
+              <button
+                type="button"
+                onClick={() => { setStep("capture"); setImageSrc(null); setJpgDownloadUrl(null); }}
+                className="w-1/3 py-3 px-2 border-2 border-slate-300 rounded-xl text-xs font-bold text-slate-700 bg-white hover:bg-slate-50 transition active:scale-95 text-center"
+              >
+                🔄 नई तस्वीर
+              </button>
+              <button
+                onClick={runCropToA4}
+                disabled={processing}
+                className="w-2/3 bg-blue-600 text-white font-bold py-3 px-3 rounded-xl hover:bg-blue-700 transition shadow-md disabled:opacity-50 text-xs sm:text-sm active:scale-95 text-center"
+              >
+                {processing ? "सीधा हो रहा है..." : "📐 काग़ज़ क्रॉप करें (Crop)"}
+              </button>
+            </div>
+
+          </div>
+        )}
+
+        {/* STEP 3: PREVIEW BOX & TOOLS SHELF */}
+        {step === "filter" && (
+          <div className="flex flex-col lg:grid lg:grid-cols-12 gap-3 items-start">
+            
+            {/* BOX 1: ऊपर का स्टिकी प्रिव्यू बॉक्स */}
+            <div className="w-full lg:col-span-7 sticky top-[62px] sm:top-3 z-20 bg-white">
+              <div className="border-2 border-slate-900 rounded-2xl p-2.5 bg-white shadow-md">
+                <div className="flex items-center justify-between pb-1.5 mb-1 border-b border-slate-200 text-xs">
+                  <span className="font-bold text-slate-900 flex items-center gap-1.5">
+                    <span>📄</span> मुख्य दस्तावेज़ प्रीव्यू
+                  </span>
+                  <span className="bg-blue-600 text-white font-bold px-2.5 py-0.5 rounded-full text-[11px]">
+                    लगभग {actualKb} KB | {orientation === "portrait" ? "खड़ा A4" : "आड़ा A4"}
+                  </span>
+                </div>
+                
+                <div className="h-[32vh] sm:h-[460px] bg-slate-100 rounded-xl overflow-hidden flex items-center justify-center p-2 border border-slate-200">
+                  {jpgDownloadUrl ? (
+                    <img
+                      src={jpgDownloadUrl}
+                      alt="Scanned Document"
+                      className="max-h-full max-w-full object-contain rounded shadow-sm"
+                    />
+                  ) : (
+                    <div className="text-sm text-slate-400">दस्तावेज़ तैयार हो रहा है...</div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* BOX 2: नीचे का टूलबार शेल्फ़ बॉक्स */}
+            <div className="w-full lg:col-span-5 border-2 border-slate-900 rounded-2xl p-3 sm:p-4 bg-white shadow-md space-y-3.5 pb-28 lg:pb-4">
+              
+              <div className="flex items-center justify-between border-b pb-2">
+                <span className="text-xs font-bold text-slate-900 uppercase tracking-wide">
+                  काग़ज़ साफ़ करें (Filters)
+                </span>
+                <button
+                  type="button"
+                  onClick={handleBackToCrop}
+                  className="text-xs text-blue-600 font-bold hover:underline"
+                >
+                  ↩ फिर से कोने बदलें
+                </button>
+              </div>
+
+              {/* ओरिएंटेशन स्विच */}
+              <div className="bg-slate-50 p-2 rounded-xl border border-slate-200 space-y-1.5">
+                <span className="text-xs font-bold text-slate-700 block">
+                  काग़ज़ ओरिएंटेशन:
+                </span>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleOrientationChange("portrait")}
+                    className={`py-2 px-2 text-xs font-bold rounded-lg border transition flex items-center justify-center space-x-1.5 ${
+                      orientation === "portrait"
+                        ? "bg-slate-900 text-white border-slate-900 shadow-sm"
+                        : "bg-white text-slate-700 border-slate-300 hover:bg-slate-100"
+                    }`}
+                  >
+                    <span>📄</span>
+                    <span>पोर्ट्रेट (खड़ा A4)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleOrientationChange("landscape")}
+                    className={`py-2 px-2 text-xs font-bold rounded-lg border transition flex items-center justify-center space-x-1.5 ${
+                      orientation === "landscape"
+                        ? "bg-slate-900 text-white border-slate-900 shadow-sm"
+                        : "bg-white text-slate-700 border-slate-300 hover:bg-slate-100"
+                    }`}
+                  >
+                    <span>📑</span>
+                    <span>लैंडस्केप (आड़ा A4)</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* फ़िल्टर बटन्स */}
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { id: "magic", label: "✨ Magic Color" },
+                  { id: "bw", label: "📄 B&W Xerox" },
+                  { id: "grayscale", label: "🔘 Grayscale" },
+                  { id: "original", label: "🌄 Original" },
+                ].map((f) => (
+                  <button
+                    key={f.id}
+                    type="button"
+                    onClick={() => handleSliderChange(f.id as FilterMode, brightness, contrast, targetKb)}
+                    className={`py-2 px-3 text-xs font-bold rounded-xl border transition ${
+                      filter === f.id
+                        ? "bg-blue-600 text-white border-blue-600 shadow-sm"
+                        : "bg-white text-slate-800 border-slate-300 hover:bg-slate-50"
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* ब्राइटनेस व कॉन्ट्रास्ट स्लाइडर्स */}
+              <div className="space-y-2.5 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                <div>
+                  <div className="flex justify-between text-xs font-semibold text-slate-800 mb-0.5">
+                    <span>सफेदी / उजाला (Light)</span>
+                    <span className="font-bold text-blue-600">{brightness}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="-40"
+                    max="40"
+                    value={brightness}
+                    onChange={(e) => handleSliderChange(filter, Number(e.target.value), contrast, targetKb)}
+                    className="w-full accent-blue-600 cursor-pointer"
+                  />
+                </div>
+                <div>
+                  <div className="flex justify-between text-xs font-semibold text-slate-800 mb-0.5">
+                    <span>कंट्रास्ट / गहराई (Sharp)</span>
+                    <span className="font-bold text-blue-600">{contrast}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="-20"
+                    max="70"
+                    value={contrast}
+                    onChange={(e) => handleSliderChange(filter, brightness, Number(e.target.value), targetKb)}
+                    className="w-full accent-blue-600 cursor-pointer"
+                  />
+                </div>
+              </div>
+
+              {/* KB साइज़ कंट्रोलर */}
+              <div className="bg-blue-50/70 p-3 rounded-xl border border-blue-200 space-y-2">
+                <div className="flex justify-between items-center text-xs font-bold text-blue-950">
+                  <span>फ़ाइल साइज़ (KB टारगेट):</span>
+                  <span className="bg-blue-600 text-white px-2.5 py-0.5 rounded-full text-[11px]">
+                    लगभग {actualKb} KB
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-3 gap-1.5">
+                  {[
+                    { label: "पोर्टल (100 KB)", kb: 100 },
+                    { label: "मानक (250 KB)", kb: 250 },
+                    { label: "हाई HD (500 KB)", kb: 500 },
+                  ].map((p) => (
+                    <button
+                      key={p.kb}
+                      type="button"
+                      onClick={() => handleSliderChange(filter, brightness, contrast, p.kb)}
+                      className={`py-1.5 px-1 text-[11px] font-bold rounded-lg border transition ${
+                        targetKb === p.kb
+                          ? "bg-blue-700 text-white border-blue-700 shadow-sm"
+                          : "bg-white text-blue-900 border-blue-200 hover:bg-blue-100"
+                      }`}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div>
+                  <input
+                    type="range"
+                    min="50"
+                    max="600"
+                    step="10"
+                    value={targetKb}
+                    onChange={(e) => handleSliderChange(filter, brightness, contrast, Number(e.target.value))}
+                    className="w-full accent-blue-700 cursor-pointer"
+                  />
+                  <div className="flex justify-between text-[10px] text-slate-500 mt-0.5 font-medium">
+                    <span>50 KB</span>
+                    <span>कस्टम स्लाइडर</span>
+                    <span>600 KB</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* डाउनलोड व शेयर बटन्स */}
+              {jpgDownloadUrl && (
+                <div className="space-y-2.5 pt-1 border-t border-slate-100">
+                  <p className="text-xs font-bold text-slate-800 uppercase tracking-wider text-center">
+                    डाउनलोड या शेयर करें ({orientation === "portrait" ? "खड़ा" : "आड़ा"} A4):
+                  </p>
+
+                  {/* 📤 शेयर बटन (WhatsApp, Bluetooth, Gmail आदि) */}
+                  <button
+                    onClick={handleShareDocument}
+                    disabled={sharing}
+                    className="w-full flex items-center justify-center space-x-2 bg-indigo-600 text-white font-bold py-3 px-3 rounded-xl hover:bg-indigo-700 transition text-xs shadow-md disabled:opacity-60 active:scale-95"
+                  >
+                    <span className="text-sm">📤</span>
+                    <span>{sharing ? "शेयर मेनू खुल रहा है..." : "सीधे शेयर करें (WhatsApp / Bluetooth / Gmail)"}</span>
+                  </button>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <a
+                      href={jpgDownloadUrl}
+                      download={`scanned-${orientation}-${actualKb}kb.jpg`}
+                      className="flex items-center justify-center space-x-2 bg-emerald-600 text-white font-bold py-3 px-3 rounded-xl hover:bg-emerald-700 transition text-xs shadow-sm text-center active:scale-95"
+                    >
+                      <span>🖼️</span>
+                      <span>JPG डाउनलोड ({actualKb} KB)</span>
+                    </a>
+                    <button
+                      onClick={generateA4Pdf}
+                      disabled={pdfGenerating}
+                      className="flex items-center justify-center space-x-2 bg-blue-600 text-white font-bold py-3 px-3 rounded-xl hover:bg-blue-700 transition text-xs shadow-sm disabled:opacity-60 active:scale-95"
+                    >
+                      <span>📄</span>
+                      <span>{pdfGenerating ? "बन रही है..." : "A4 PDF डाउनलोड"}</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+            </div>
+
+          </div>
+        )}
+
+      </div>
+    </main>
+  );
+}

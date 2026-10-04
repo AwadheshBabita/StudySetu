@@ -1,0 +1,941 @@
+'use client';
+
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import Link from 'next/link';
+import jsPDF from 'jspdf';
+
+type SelectedMode = 'none' | 'photo' | 'document';
+type PhotoPreset = 'passport' | '4x6' | '8x10';
+type DocPreset = 'portrait' | 'landscape';
+
+export default function PhotoDocCropper() {
+  const [imageSrc, setImageSrc] = useState<string | null>(null);
+  const [step, setStep] = useState<'upload' | 'crop' | 'adjust'>('upload');
+  const [fileName, setFileName] = useState<string>('photo_doc');
+
+  // फ़्री क्रॉपिंग बॉक्स (% में)
+  const [cropBox, setCropBox] = useState<{ x: number; y: number; width: number; height: number }>({
+    x: 15,
+    y: 15,
+    width: 70,
+    height: 70
+  });
+
+  const [activeHandle, setActiveHandle] = useState<string | null>(null);
+  const [dragStart, setDragStart] = useState<{ x: number; y: number; box: typeof cropBox } | null>(null);
+  const [magnifier, setMagnifier] = useState<{ active: boolean; x: number; y: number; imgX: number; imgY: number }>({
+    active: false,
+    x: 0,
+    y: 0,
+    imgX: 0,
+    imgY: 0
+  });
+
+  // मोड्स: डिफ़ॉल्ट = 'none' (क्रॉप किया हुआ मूल)
+  const [selectedMode, setSelectedMode] = useState<SelectedMode>('none');
+  const [photoPreset, setPhotoPreset] = useState<PhotoPreset>('passport');
+  const [docPreset, setDocPreset] = useState<DocPreset>('portrait');
+
+  // टारगेट KB स्लाइडर (10 KB से 800 KB)
+  const [targetKB, setTargetKB] = useState<number>(100);
+
+  // एडजस्टमेंट्स
+  const [rotation, setRotation] = useState<number>(0);
+  const [zoom, setZoom] = useState<number>(1);
+  const [brightness, setBrightness] = useState<number>(100);
+  const [contrast, setContrast] = useState<number>(100);
+
+  // लाइव प्रीव्यू व स्टेटस
+  const [previewDataUrl, setPreviewDataUrl] = useState<string | null>(null);
+  const [isProcessing, setIsProcessing] = useState<boolean>(false);
+  const [liveJpgKB, setLiveJpgKB] = useState<number>(100);
+  const [cameraActive, setCameraActive] = useState<boolean>(false);
+
+  // रेफ़्स
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const imgElementRef = useRef<HTMLImageElement | null>(null);
+
+  // फ़ाइल इनपुट
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setFileName(file.name.replace(/\.[^/.]+$/, ""));
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      setImageSrc(ev.target?.result as string);
+      setStep('crop');
+      setCropBox({ x: 15, y: 15, width: 70, height: 70 });
+      setRotation(0);
+      setZoom(1);
+      setBrightness(100);
+      setContrast(100);
+      setSelectedMode('none');
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // कैमरा
+  const startCamera = async () => {
+    try {
+      setCameraActive(true);
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 1920 }, height: { ideal: 1080 }, facingMode: { ideal: 'environment' } },
+        audio: false
+      });
+      streamRef.current = stream;
+      if (videoRef.current) videoRef.current.srcObject = stream;
+    } catch {
+      alert("कैमरा शुरू नहीं हो सका। कृपया परमिशन चेक करें।");
+      setCameraActive(false);
+    }
+  };
+
+  const stopCamera = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+    setCameraActive(false);
+  };
+
+  const capturePhoto = () => {
+    if (!videoRef.current) return;
+    const v = videoRef.current;
+    const cv = document.createElement('canvas');
+    cv.width = v.videoWidth || 1280;
+    cv.height = v.videoHeight || 720;
+    const cx = cv.getContext('2d');
+    if (!cx) return;
+    cx.drawImage(v, 0, 0, cv.width, cv.height);
+    setImageSrc(cv.toDataURL('image/jpeg', 0.95));
+    setFileName("camera_capture");
+    setStep('crop');
+    setSelectedMode('none');
+    stopCamera();
+  };
+
+  // स्मूथ व बारीक क्रॉपिंग + मैग्नीफायर लेंस
+  const onMouseDownHandle = (handle: string, clientX: number, clientY: number) => {
+    setActiveHandle(handle);
+    setDragStart({ x: clientX, y: clientY, box: { ...cropBox } });
+  };
+
+  const handlePointerMove = useCallback((e: MouseEvent | TouchEvent) => {
+    if (!activeHandle || !dragStart || !imgElementRef.current) return;
+    if ('touches' in e && e.cancelable) e.preventDefault();
+
+    const clientX = 'touches' in e ? e.touches[0].clientX : (e as MouseEvent).clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : (e as MouseEvent).clientY;
+    
+    const rect = imgElementRef.current.getBoundingClientRect();
+    const dx = ((clientX - dragStart.x) / rect.width) * 100;
+    const dy = ((clientY - dragStart.y) / rect.height) * 100;
+
+    let { x, y, width, height } = dragStart.box;
+    const MIN_SIZE = 1.0;
+
+    if (activeHandle === 'move') {
+      x = Math.max(0, Math.min(100 - width, x + dx));
+      y = Math.max(0, Math.min(100 - height, y + dy));
+    } else {
+      if (activeHandle === 'se') {
+        width = Math.max(MIN_SIZE, Math.min(100 - x, width + dx));
+        height = Math.max(MIN_SIZE, Math.min(100 - y, height + dy));
+      } else if (activeHandle === 'ne') {
+        width = Math.max(MIN_SIZE, Math.min(100 - x, width + dx));
+        const newH = height - dy;
+        if (newH >= MIN_SIZE && y + dy >= 0) {
+          y = y + dy;
+          height = newH;
+        }
+      } else if (activeHandle === 'sw') {
+        height = Math.max(MIN_SIZE, Math.min(100 - y, height + dy));
+        const newW = width - dx;
+        if (newW >= MIN_SIZE && x + dx >= 0) {
+          x = x + dx;
+          width = newW;
+        }
+      } else if (activeHandle === 'nw') {
+        const newW = width - dx;
+        const newH = height - dy;
+        if (newW >= MIN_SIZE && x + dx >= 0) {
+          x = x + dx;
+          width = newW;
+        }
+        if (newH >= MIN_SIZE && y + dy >= 0) {
+          y = y + dy;
+          height = newH;
+        }
+      }
+    }
+
+    setCropBox({ x, y, width, height });
+
+    if (containerRef.current) {
+      const cRect = containerRef.current.getBoundingClientRect();
+      const clampedImgX = Math.max(0, Math.min(100, ((clientX - rect.left) / rect.width) * 100));
+      const clampedImgY = Math.max(0, Math.min(100, ((clientY - rect.top) / rect.height) * 100));
+      setMagnifier({
+        active: true,
+        x: clientX - cRect.left,
+        y: clientY - cRect.top,
+        imgX: clampedImgX,
+        imgY: clampedImgY
+      });
+    }
+  }, [activeHandle, dragStart]);
+
+  const handlePointerUp = useCallback(() => {
+    setActiveHandle(null);
+    setDragStart(null);
+    setMagnifier((m) => ({ ...m, active: false }));
+  }, []);
+
+  useEffect(() => {
+    if (activeHandle) {
+      window.addEventListener('mousemove', handlePointerMove, { passive: false });
+      window.addEventListener('mouseup', handlePointerUp);
+      window.addEventListener('touchmove', handlePointerMove, { passive: false });
+      window.addEventListener('touchend', handlePointerUp);
+    }
+    return () => {
+      window.removeEventListener('mousemove', handlePointerMove);
+      window.removeEventListener('mouseup', handlePointerUp);
+      window.removeEventListener('touchmove', handlePointerMove);
+      window.removeEventListener('touchend', handlePointerUp);
+    };
+  }, [activeHandle, handlePointerMove, handlePointerUp]);
+
+  // बिना स्ट्रेच हुए सही आस्पेक्ट रेशियो रेंडरिंग (300 DPI क्लैरिटी)
+  const renderCanvas = useCallback(async (): Promise<HTMLCanvasElement | null> => {
+    if (!imageSrc) return null;
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.src = imageSrc;
+    await new Promise((res) => { img.onload = res; });
+
+    const natW = img.naturalWidth;
+    const natH = img.naturalHeight;
+
+    const cx = Math.max(0, (cropBox.x / 100) * natW);
+    const cy = Math.max(0, (cropBox.y / 100) * natH);
+    const cw = Math.min(natW - cx, Math.max(1, (cropBox.width / 100) * natW));
+    const ch = Math.min(natH - cy, Math.max(1, (cropBox.height / 100) * natH));
+
+    let outW = cw;
+    let outH = ch;
+
+    if (selectedMode === 'photo') {
+      let targetRatio = cw / ch;
+      if (photoPreset === 'passport') targetRatio = 35 / 45; // 7:9 पासपोर्ट
+      else if (photoPreset === '4x6') targetRatio = 4 / 6;
+      else if (photoPreset === '8x10') targetRatio = 8 / 10;
+
+      const baseDpiSize = photoPreset === 'passport' ? 600 : 1800;
+      outW = baseDpiSize;
+      outH = baseDpiSize / targetRatio;
+    } else if (selectedMode === 'document') {
+      if (docPreset === 'portrait') {
+        outW = 2480;
+        outH = 3508;
+      } else if (docPreset === 'landscape') {
+        outW = 3508;
+        outH = 2480;
+      }
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(outW);
+    canvas.height = Math.round(outH);
+    const ctx = canvas.getContext('2d', { alpha: false });
+    if (!ctx) return null;
+
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+
+    ctx.filter = `brightness(${brightness}%) contrast(${contrast}%)`;
+
+    ctx.save();
+    ctx.translate(canvas.width / 2, canvas.height / 2);
+    ctx.rotate((rotation * Math.PI) / 180);
+    ctx.scale(zoom, zoom);
+
+    const imgRatio = cw / ch;
+    const canvasRatio = outW / outH;
+    let drawW = outW;
+    let drawH = outH;
+
+    if (selectedMode !== 'none') {
+      if (imgRatio > canvasRatio) {
+        drawW = outW;
+        drawH = outW / imgRatio;
+      } else {
+        drawH = outH;
+        drawW = outH * imgRatio;
+      }
+    }
+
+    ctx.drawImage(img, cx, cy, cw, ch, -drawW / 2, -drawH / 2, drawW, drawH);
+    ctx.restore();
+    ctx.filter = 'none';
+
+    return canvas;
+  }, [imageSrc, cropBox, selectedMode, photoPreset, docPreset, rotation, zoom, brightness, contrast]);
+
+  // जब स्टेप 2 में आएँ तो लाइव प्रीव्यू रेंडर हो
+  useEffect(() => {
+    if (step === 'adjust' && imageSrc) {
+      let isSubscribed = true;
+      renderCanvas().then((canvas) => {
+        if (canvas && isSubscribed) {
+          setPreviewDataUrl(canvas.toDataURL('image/jpeg', 0.88));
+        }
+      });
+      return () => { isSubscribed = false; };
+    }
+  }, [step, imageSrc, renderCanvas]);
+
+  // सटीक बाइनरी-सर्च कम्प्रेशन इंजन
+  const getProcessedBlob = useCallback(async (): Promise<Blob | null> => {
+    const origCanvas = await renderCanvas();
+    if (!origCanvas) return null;
+
+    const targetBytes = targetKB * 1024;
+
+    let scale = 1.0;
+    if (targetKB <= 20) scale = Math.min(1.0, 800 / Math.max(origCanvas.width, origCanvas.height));
+    else if (targetKB <= 40) scale = Math.min(1.0, 1100 / Math.max(origCanvas.width, origCanvas.height));
+    else if (targetKB <= 80) scale = Math.min(1.0, 1500 / Math.max(origCanvas.width, origCanvas.height));
+
+    const workCanvas = document.createElement('canvas');
+    workCanvas.width = Math.max(150, Math.round(origCanvas.width * scale));
+    workCanvas.height = Math.max(150, Math.round(origCanvas.height * scale));
+    const wCtx = workCanvas.getContext('2d', { alpha: false });
+    if (!wCtx) return null;
+
+    wCtx.fillStyle = '#FFFFFF';
+    wCtx.fillRect(0, 0, workCanvas.width, workCanvas.height);
+    wCtx.imageSmoothingEnabled = true;
+    wCtx.imageSmoothingQuality = 'high';
+    wCtx.drawImage(origCanvas, 0, 0, workCanvas.width, workCanvas.height);
+
+    let qLow = 0.05;
+    let qHigh = 0.98;
+    let bestBlob: Blob | null = null;
+
+    for (let i = 0; i < 12; i++) {
+      const qMid = (qLow + qHigh) / 2;
+      const b: Blob = await new Promise((res) => workCanvas.toBlob((bl) => res(bl!), 'image/jpeg', qMid));
+      if (b.size <= targetBytes) {
+        bestBlob = b;
+        qLow = qMid;
+      } else {
+        qHigh = qMid;
+      }
+    }
+
+    return bestBlob || new Promise((res) => workCanvas.toBlob((b) => res(b), 'image/jpeg', 0.1));
+  }, [renderCanvas, targetKB]);
+
+  // लाइव KB साइज़ का मिलान
+  useEffect(() => {
+    if (step === 'adjust') {
+      getProcessedBlob().then((b) => {
+        if (b) setLiveJpgKB(Math.round(b.size / 1024));
+      });
+    }
+  }, [step, targetKB, getProcessedBlob]);
+
+  // JPG डाउनलोड
+  const downloadJPG = async () => {
+    setIsProcessing(true);
+    try {
+      const blob = await getProcessedBlob();
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${fileName}_cropped.jpg`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // PDF डाउनलोड
+  const downloadPDF = async () => {
+    setIsProcessing(true);
+    try {
+      const blob = await getProcessedBlob();
+      if (!blob) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const base64data = reader.result as string;
+        const isLandscape = selectedMode === 'document' && docPreset === 'landscape';
+        const doc = new jsPDF({
+          orientation: isLandscape ? 'landscape' : 'portrait',
+          unit: 'mm',
+          format: 'a4'
+        });
+        const pageWidth = isLandscape ? 297 : 210;
+        const pageHeight = isLandscape ? 210 : 297;
+
+        if (selectedMode === 'photo' && photoPreset === 'passport') {
+          doc.addImage(base64data, 'JPEG', 15, 15, 35, 45);
+        } else {
+          doc.addImage(base64data, 'JPEG', 0, 0, pageWidth, pageHeight);
+        }
+        doc.save(`${fileName}_cropped.pdf`);
+      };
+      reader.readAsDataURL(blob);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // शेयर
+  const shareFile = async () => {
+    setIsProcessing(true);
+    try {
+      const blob = await getProcessedBlob();
+      if (!blob) return;
+      const file = new File([blob], `${fileName}_cropped.jpg`, { type: 'image/jpeg' });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: 'ExamSewa Cropped Document',
+          text: 'ExamSewa Photo & Doc'
+        });
+      } else {
+        alert("आपके डिवाइस में डायरेक्ट शेयर उपलब्ध नहीं है। कृपया डाउनलोड का उपयोग करें।");
+      }
+    } catch {
+      // कैंसल
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  return (
+    <main className="min-h-screen bg-slate-50 py-4 sm:py-6 px-3 sm:px-6">
+      <div className="max-w-7xl mx-auto space-y-4">
+        
+        {/* टॉप हेडर */}
+        <div className="flex items-center justify-between">
+          <Link href="/" className="text-xs sm:text-sm font-semibold text-slate-600 hover:text-slate-900 transition flex items-center gap-1.5">
+            ← मुख्य टूल्स पर वापस जाएँ
+          </Link>
+          <span className="text-[11px] sm:text-xs font-bold text-red-600 bg-red-50 border border-red-200 px-3 py-1 rounded-full uppercase tracking-wider">
+            PHOTO & DOC CROPPER
+          </span>
+        </div>
+
+        {/* 1. अपलोड स्क्रीन */}
+        {step === 'upload' && (
+          <div className="bg-white rounded-3xl p-6 sm:p-10 border border-slate-200 shadow-sm text-center max-w-xl mx-auto space-y-6 my-8">
+            <div>
+              <div className="w-16 h-16 bg-red-50 rounded-2xl mx-auto flex items-center justify-center text-3xl mb-3 shadow-inner">
+                ✂️
+              </div>
+              <h1 className="text-2xl sm:text-3xl font-black text-slate-800">
+                Photo & Doc Cropper
+              </h1>
+              <p className="text-xs sm:text-sm text-slate-500 mt-1">
+                दस्तावेज़, मार्कशीट या पासपोर्ट फ़ोटो को 300 DPI में क्रॉप करें और मनचाहे सटीक KB में डाउनलोड करें
+              </p>
+            </div>
+
+            <div className="space-y-4 max-w-sm mx-auto pt-2">
+              <label
+                htmlFor="photo-doc-file"
+                className="block w-full py-4 px-6 rounded-2xl font-black text-sm text-white shadow-lg cursor-pointer transition active:scale-98 bg-red-600 hover:bg-red-700 shadow-red-200 text-center"
+              >
+                📁 फ़ोटो या डॉक्यूमेंट चुनें
+              </label>
+              <input
+                id="photo-doc-file"
+                type="file"
+                accept="image/*"
+                onChange={handleFileUpload}
+                className="sr-only"
+              />
+
+              <button
+                type="button"
+                onClick={startCamera}
+                className="w-full py-3.5 px-6 rounded-2xl font-bold text-sm text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 shadow-sm transition flex items-center justify-center gap-2"
+              >
+                📷 लाइव कैमरा से फ़ोटो लें
+              </button>
+
+              <div className="text-[11px] text-slate-400 space-y-1 text-center pt-2">
+                <p>✓ 100% सुरक्षित (फ़ाइल आपके डिवाइस में ही प्रोसेस होगी)</p>
+                <p>✓ साइबर कैफ़े और स्टूडियो प्रिंटिंग हेतु 300 DPI सपोर्ट</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 2. स्टेप 1: केवल क्रॉप स्क्रीन */}
+        {imageSrc && step === 'crop' && (
+          <div className="bg-white rounded-3xl p-4 sm:p-6 border border-slate-200 shadow-sm space-y-3">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
+              <div>
+                <h2 className="text-sm sm:text-base font-black text-slate-800">स्टेप 1: क्रॉप एरिया चुनें</h2>
+                <p className="text-[11px] text-slate-500">कोनों की 4 बिंदियों से केवल पासपोर्ट या मार्कशीट का हिस्सा चुनें</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setStep('adjust')}
+                className="py-2.5 px-6 bg-red-600 hover:bg-red-700 active:scale-95 text-white font-bold text-xs sm:text-sm rounded-xl shadow-md transition"
+              >
+                क्रॉप पूरा हुआ →
+              </button>
+            </div>
+
+            {/* क्रॉपिंग वर्कस्पेस */}
+            <div
+              ref={containerRef}
+              style={{ touchAction: 'none' }}
+              className="relative select-none overflow-hidden rounded-2xl bg-slate-900 border border-slate-300 h-[68vh] flex items-center justify-center"
+            >
+              <div className="relative inline-block max-h-[68vh] max-w-full">
+                <img
+                  ref={imgElementRef}
+                  src={imageSrc}
+                  alt="Crop Area"
+                  className="max-h-[68vh] w-auto max-w-full object-contain pointer-events-none select-none block"
+                />
+
+                {/* डार्क मास्क */}
+                <div
+                  className="absolute inset-0 bg-black/60 pointer-events-none"
+                  style={{
+                    clipPath: `polygon(
+                      0% 0%, 100% 0%, 100% 100%, 0% 100%,
+                      0% ${cropBox.y}%, 
+                      ${cropBox.x}% ${cropBox.y}%, 
+                      ${cropBox.x}% ${cropBox.y + cropBox.height}%, 
+                      ${cropBox.x + cropBox.width}% ${cropBox.y + cropBox.height}%, 
+                      ${cropBox.x + cropBox.width}% ${cropBox.y}%, 
+                      0% ${cropBox.y}%
+                    )`
+                  }}
+                />
+
+                {/* पतली 1.5px हरी लाइन वाला क्रॉप बॉक्स */}
+                <div
+                  style={{
+                    left: `${cropBox.x}%`,
+                    top: `${cropBox.y}%`,
+                    width: `${cropBox.width}%`,
+                    height: `${cropBox.height}%`,
+                    touchAction: 'none'
+                  }}
+                  onMouseDown={(e) => onMouseDownHandle('move', e.clientX, e.clientY)}
+                  onTouchStart={(e) => {
+                    e.stopPropagation();
+                    onMouseDownHandle('move', e.touches[0].clientX, e.touches[0].clientY);
+                  }}
+                  className="absolute border border-green-500 cursor-move z-20"
+                >
+                  {/* 4 साफ़ बिंदियां */}
+                  {[
+                    { id: 'nw', cls: '-top-2 -left-2 cursor-nwse-resize' },
+                    { id: 'ne', cls: '-top-2 -right-2 cursor-nesw-resize' },
+                    { id: 'se', cls: '-bottom-2 -right-2 cursor-nwse-resize' },
+                    { id: 'sw', cls: '-bottom-2 -left-2 cursor-nesw-resize' },
+                  ].map((dot) => (
+                    <div
+                      key={dot.id}
+                      onMouseDown={(e) => { e.stopPropagation(); onMouseDownHandle(dot.id, e.clientX, e.clientY); }}
+                      onTouchStart={(e) => { e.stopPropagation(); onMouseDownHandle(dot.id, e.touches[0].clientX, e.touches[0].clientY); }}
+                      className={`absolute w-4 h-4 bg-green-500 rounded-full border-2 border-white shadow-md z-30 transition-transform active:scale-125 ${dot.cls}`}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              {/* मैग्नीफायर लेंस ज़ूम (सटीक सेंटर व कॉम्पैक्ट साइज़) */}
+              {magnifier.active && imageSrc && (
+                <div
+                  style={{
+                    left: Math.max(35, Math.min((containerRef.current?.clientWidth || 300) - 35, magnifier.x)),
+                    top: Math.max(35, magnifier.y - 50),
+                    width: '64px',
+                    height: '64px',
+                    backgroundImage: `url(${imageSrc})`,
+                    backgroundPosition: `${magnifier.imgX}% ${magnifier.imgY}%`,
+                    backgroundSize: `${(imgElementRef.current?.clientWidth || 200) * 2.5}px ${(imgElementRef.current?.clientHeight || 200) * 2.5}px`,
+                    backgroundRepeat: 'no-repeat'
+                  }}
+                  className="absolute pointer-events-none -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-green-500 shadow-xl bg-slate-900 overflow-hidden z-40"
+                >
+                  {/* सेंटर क्रॉसहेयर */}
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <div className="w-full h-[1px] bg-red-500/90"></div>
+                    <div className="absolute h-full w-[1px] bg-red-500/90"></div>
+                    <div className="w-1.5 h-1.5 rounded-full border border-red-500"></div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-between items-center pt-1">
+              <button
+                type="button"
+                onClick={() => { setImageSrc(null); setStep('upload'); }}
+                className="text-xs font-bold text-slate-500 hover:text-red-600 transition"
+              >
+                ✕ रद्द करें
+              </button>
+              <button
+                type="button"
+                onClick={() => setStep('adjust')}
+                className="py-3 px-8 bg-red-600 hover:bg-red-700 active:scale-95 text-white font-black text-sm rounded-xl shadow-md transition"
+              >
+                क्रॉप पूरा हुआ, आगे बढ़ें →
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* 3. स्टेप 2: लाइव प्रीव्यू (PC 2/3, मोबाइल ऊपर आधा) + स्लाइडिंग टूलबॉक्स */}
+        {imageSrc && step === 'adjust' && (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+            
+            {/* प्रीव्यू बॉक्स: PC में 2/3 (8/12), मोबाइल में ऊपर स्थिर (Sticky) */}
+            <div className="lg:col-span-8 sticky top-3 z-20 space-y-3">
+              <div className="bg-white rounded-3xl p-3 sm:p-5 border border-slate-200 shadow-md space-y-3">
+                
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse"></span>
+                    <span className="text-xs font-black text-slate-800 uppercase tracking-wider">
+                      लाइव प्रीव्यू
+                    </span>
+                    <span className="text-[11px] font-semibold text-slate-500">
+                      {selectedMode === 'none' && "(डिफ़ॉल्ट क्रॉप)"}
+                      {selectedMode === 'photo' && `(फ़ोटो: ${photoPreset})`}
+                      {selectedMode === 'document' && `(डॉक्यूमेंट: ${docPreset})`}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setStep('crop')}
+                    className="text-xs font-bold text-red-600 hover:underline"
+                  >
+                    ← दोबारा क्रॉप करें
+                  </button>
+                </div>
+
+                {/* कैनवस व्यू */}
+                <div className="relative bg-slate-900 rounded-2xl h-[36vh] sm:h-[45vh] lg:h-[60vh] flex items-center justify-center overflow-hidden border border-slate-300">
+                  {previewDataUrl ? (
+                    <img
+                      src={previewDataUrl}
+                      alt="Live Preview"
+                      className="max-h-[96%] max-w-[96%] object-contain rounded shadow"
+                    />
+                  ) : (
+                    <span className="text-xs text-white/50">रेंडर हो रहा है...</span>
+                  )}
+                </div>
+
+                {/* डाउनलोड और शेयर बटन्स (लाइव KB साइज़ के साथ) */}
+                <div className="grid grid-cols-3 gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={downloadJPG}
+                    disabled={isProcessing}
+                    className="py-3 px-2 bg-red-600 hover:bg-red-700 active:scale-95 text-white font-black text-xs sm:text-sm rounded-xl shadow-md transition flex flex-col items-center justify-center"
+                  >
+                    <span>📥 डाउनलोड JPG</span>
+                    <span className="text-[10px] font-normal opacity-90">({liveJpgKB} KB)</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={downloadPDF}
+                    disabled={isProcessing}
+                    className="py-3 px-2 bg-slate-800 hover:bg-slate-900 active:scale-95 text-white font-black text-xs sm:text-sm rounded-xl shadow-md transition flex flex-col items-center justify-center"
+                  >
+                    <span>📄 डाउनलोड PDF</span>
+                    <span className="text-[10px] font-normal opacity-90">(~{Math.round(liveJpgKB * 1.15)} KB)</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={shareFile}
+                    disabled={isProcessing}
+                    className="py-3 px-2 bg-green-600 hover:bg-green-700 active:scale-95 text-white font-black text-xs sm:text-sm rounded-xl shadow-md transition flex flex-col items-center justify-center"
+                  >
+                    <span>🔗 शेयर करें</span>
+                    <span className="text-[10px] font-normal opacity-90">({liveJpgKB} KB)</span>
+                  </button>
+                </div>
+
+              </div>
+            </div>
+
+            {/* टूलबॉक्स: PC में 1/3 (4/12), मोबाइल में नीचे स्क्रॉल होने वाला स्लाइडिंग पैनल */}
+            <div className="lg:col-span-4 space-y-4 pb-12">
+              
+              {/* बॉक्स 1: केवल दो चेकबॉक्स (फ़ोटो या डॉक्यूमेंट) */}
+              <div className="bg-white rounded-3xl p-4 sm:p-5 border border-slate-200 shadow-sm space-y-4">
+                <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider">
+                  साइज़ मोड (वैकल्पिक)
+                </h3>
+
+                {/* दो मुख्य चेकबॉक्स */}
+                <div className="grid grid-cols-2 gap-3">
+                  <label
+                    className={`flex items-center gap-2.5 p-3 rounded-2xl border cursor-pointer transition ${
+                      selectedMode === 'photo'
+                        ? 'bg-red-50 border-red-600 text-red-700 shadow-xs'
+                        : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedMode === 'photo'}
+                      onChange={() => setSelectedMode(selectedMode === 'photo' ? 'none' : 'photo')}
+                      className="w-4 h-4 accent-red-600 cursor-pointer"
+                    />
+                    <span className="text-xs font-bold">📷 फ़ोटो मोड</span>
+                  </label>
+
+                  <label
+                    className={`flex items-center gap-2.5 p-3 rounded-2xl border cursor-pointer transition ${
+                      selectedMode === 'document'
+                        ? 'bg-red-50 border-red-600 text-red-700 shadow-xs'
+                        : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedMode === 'document'}
+                      onChange={() => setSelectedMode(selectedMode === 'document' ? 'none' : 'document')}
+                      className="w-4 h-4 accent-red-600 cursor-pointer"
+                    />
+                    <span className="text-xs font-bold">📄 डॉक्यूमेंट मोड</span>
+                  </label>
+                </div>
+
+                {/* 1. फ़ोटो चुने जाने पर सिर्फ़ 3 बॉक्स: पासपोर्ट, 4/6, 8/10 */}
+                {selectedMode === 'photo' && (
+                  <div className="pt-2 border-t border-slate-100 space-y-2">
+                    <span className="text-[11px] font-bold text-slate-500">फ़ोटो साइज़ चुनें:</span>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setPhotoPreset('passport')}
+                        className={`py-2 px-1 rounded-xl text-xs font-bold border transition ${
+                          photoPreset === 'passport'
+                            ? 'bg-slate-800 text-white border-slate-800'
+                            : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        पासपोर्ट
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPhotoPreset('4x6')}
+                        className={`py-2 px-1 rounded-xl text-xs font-bold border transition ${
+                          photoPreset === '4x6'
+                            ? 'bg-slate-800 text-white border-slate-800'
+                            : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        4 × 6
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPhotoPreset('8x10')}
+                        className={`py-2 px-1 rounded-xl text-xs font-bold border transition ${
+                          photoPreset === '8x10'
+                            ? 'bg-slate-800 text-white border-slate-800'
+                            : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        8 × 10
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* 2. डॉक्यूमेंट चुने जाने पर सिर्फ़ 2 बॉक्स: पोर्ट्रेट, लैंडस्केप */}
+                {selectedMode === 'document' && (
+                  <div className="pt-2 border-t border-slate-100 space-y-2">
+                    <span className="text-[11px] font-bold text-slate-500">ओरिएंटेशन चुनें:</span>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setDocPreset('portrait')}
+                        className={`py-2.5 px-2 rounded-xl text-xs font-bold border transition ${
+                          docPreset === 'portrait'
+                            ? 'bg-slate-800 text-white border-slate-800'
+                            : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        A4 पोर्ट्रेट (सीधा)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDocPreset('landscape')}
+                        className={`py-2.5 px-2 rounded-xl text-xs font-bold border transition ${
+                          docPreset === 'landscape'
+                            ? 'bg-slate-800 text-white border-slate-800'
+                            : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        A4 लैंडस्केप (चौड़ा)
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* बॉक्स 2: लाइव एडजस्टमेंट (रोटेशन, ज़ूम, ब्राइटनेस, कॉन्ट्रास्ट) */}
+              <div className="bg-white rounded-3xl p-4 sm:p-5 border border-slate-200 shadow-sm space-y-3">
+                <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider">
+                  फ़िल्टर व एडजस्टमेंट
+                </h3>
+
+                <div className="space-y-3">
+                  <div>
+                    <div className="flex justify-between text-xs font-bold text-slate-700 mb-1">
+                      <span>🔄 रोटेशन</span>
+                      <span>{rotation}°</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="-180"
+                      max="180"
+                      value={rotation}
+                      onChange={(e) => setRotation(Number(e.target.value))}
+                      className="w-full accent-red-600 cursor-pointer"
+                    />
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between text-xs font-bold text-slate-700 mb-1">
+                      <span>🔍 ज़ूम</span>
+                      <span>{zoom.toFixed(1)}x</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0.5"
+                      max="3"
+                      step="0.1"
+                      value={zoom}
+                      onChange={(e) => setZoom(Number(e.target.value))}
+                      className="w-full accent-red-600 cursor-pointer"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <div className="flex justify-between text-xs font-bold text-slate-700 mb-1">
+                        <span>☀️ चमक</span>
+                        <span>{brightness}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="50"
+                        max="150"
+                        value={brightness}
+                        onChange={(e) => setBrightness(Number(e.target.value))}
+                        className="w-full accent-red-600 cursor-pointer"
+                      />
+                    </div>
+
+                    <div>
+                      <div className="flex justify-between text-xs font-bold text-slate-700 mb-1">
+                        <span>🌓 गहराई</span>
+                        <span>{contrast}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="50"
+                        max="150"
+                        value={contrast}
+                        onChange={(e) => setContrast(Number(e.target.value))}
+                        className="w-full accent-red-600 cursor-pointer"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* बॉक्स 3: टारगेट KB स्लाइडर (10 KB से 800 KB) */}
+              <div className="bg-white rounded-3xl p-4 sm:p-5 border border-slate-200 shadow-sm space-y-3">
+                <div className="flex justify-between items-center">
+                  <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider">
+                    टारगेट साइज़ (KB स्लाइडर)
+                  </h3>
+                  <span className="text-xs font-black text-red-600 bg-red-50 px-2.5 py-1 rounded-lg border border-red-200">
+                    {targetKB} KB
+                  </span>
+                </div>
+
+                <input
+                  type="range"
+                  min="10"
+                  max="800"
+                  step="5"
+                  value={targetKB}
+                  onChange={(e) => setTargetKB(Number(e.target.value))}
+                  className="w-full accent-red-600 cursor-pointer"
+                />
+
+                <div className="flex justify-between items-center text-[11px] font-semibold text-slate-400">
+                  <span>10 KB</span>
+                  <span>400 KB</span>
+                  <span>800 KB</span>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        )}
+
+      </div>
+
+      {/* लाइव कैमरा मोडल */}
+      {cameraActive && (
+        <div className="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center p-4">
+          <div className="relative w-full max-w-lg bg-black rounded-3xl overflow-hidden shadow-2xl border border-slate-700">
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              className="w-full h-[60vh] object-cover"
+            />
+            <div className="p-4 bg-slate-900/90 flex items-center justify-between gap-4">
+              <button
+                type="button"
+                onClick={stopCamera}
+                className="py-3 px-5 rounded-xl bg-slate-800 text-white font-bold text-sm hover:bg-slate-700 transition"
+              >
+                बंद करें
+              </button>
+              <button
+                type="button"
+                onClick={capturePhoto}
+                className="flex-1 py-3 px-6 rounded-xl bg-red-600 hover:bg-red-700 text-white font-black text-base shadow-lg shadow-red-500/30 active:scale-95 transition flex items-center justify-center gap-2"
+              >
+                📸 फ़ोटो खींचें
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </main>
+  );
+}

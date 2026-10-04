@@ -1,4 +1,5 @@
 "use client";
+import { exportSmartJpg } from "@/lib/image-engine";
 
 import React, { useState, useRef, useEffect } from "react";
 import Link from "next/link";
@@ -33,6 +34,97 @@ export default function DocumentScannerPage() {
   const activePointIdxRef = useRef<number | null>(null);
   const kbDebounceRef = useRef<NodeJS.Timeout | null>(null);
 
+  // ऑटो डॉक्यूमेंट एज डिटेक्शन इंजन (Edge Contrast & Brightness Gradient)
+  const detectDocumentCorners = (img: HTMLImageElement): Point[] => {
+    const sw = 320;
+    const sh = Math.round((img.height / img.width) * sw);
+    const cvs = document.createElement("canvas");
+    cvs.width = sw;
+    cvs.height = sh;
+    const ctx = cvs.getContext("2d");
+    if (!ctx) {
+      const px = img.width * 0.08, py = img.height * 0.08;
+      return [
+        { x: px, y: py },
+        { x: img.width - px, y: py },
+        { x: img.width - px, y: img.height - py },
+        { x: px, y: img.height - py }
+      ];
+    }
+
+    ctx.drawImage(img, 0, 0, sw, sh);
+    const imgData = ctx.getImageData(0, 0, sw, sh);
+    const data = imgData.data;
+
+    const getLum = (x: number, y: number) => {
+      const idx = (y * sw + x) * 4;
+      return 0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2];
+    };
+
+    let topY = Math.round(sh * 0.08);
+    let bottomY = Math.round(sh * 0.92);
+    let leftX = Math.round(sw * 0.08);
+    let rightX = Math.round(sw * 0.92);
+
+    // ऊपर से स्कैन
+    for (let y = 10; y < sh * 0.4; y += 4) {
+      let diffSum = 0;
+      for (let x = sw * 0.2; x < sw * 0.8; x += 10) {
+        diffSum += Math.abs(getLum(Math.round(x), y + 4) - getLum(Math.round(x), y));
+      }
+      if (diffSum / ((sw * 0.6) / 10) > 22) {
+        topY = y;
+        break;
+      }
+    }
+
+    // नीचे से स्कैन
+    for (let y = sh - 10; y > sh * 0.6; y -= 4) {
+      let diffSum = 0;
+      for (let x = sw * 0.2; x < sw * 0.8; x += 10) {
+        diffSum += Math.abs(getLum(Math.round(x), y - 4) - getLum(Math.round(x), y));
+      }
+      if (diffSum / ((sw * 0.6) / 10) > 22) {
+        bottomY = y;
+        break;
+      }
+    }
+
+    // बाएँ से स्कैन
+    for (let x = 10; x < sw * 0.4; x += 4) {
+      let diffSum = 0;
+      for (let y = sh * 0.2; y < sh * 0.8; y += 10) {
+        diffSum += Math.abs(getLum(x + 4, Math.round(y)) - getLum(x, Math.round(y)));
+      }
+      if (diffSum / ((sh * 0.6) / 10) > 22) {
+        leftX = x;
+        break;
+      }
+    }
+
+    // दाएँ से स्कैन
+    for (let x = sw - 10; x > sw * 0.6; x -= 4) {
+      let diffSum = 0;
+      for (let y = sh * 0.2; y < sh * 0.8; y += 10) {
+        diffSum += Math.abs(getLum(x - 4, Math.round(y)) - getLum(x, Math.round(y)));
+      }
+      if (diffSum / ((sh * 0.6) / 10) > 22) {
+        rightX = x;
+        break;
+      }
+    }
+
+    const scaleX = img.width / sw;
+    const scaleY = img.height / sh;
+
+    return [
+      { x: Math.round(leftX * scaleX), y: Math.round(topY * scaleY) },
+      { x: Math.round(rightX * scaleX), y: Math.round(topY * scaleY) },
+      { x: Math.round(rightX * scaleX), y: Math.round(bottomY * scaleY) },
+      { x: Math.round(leftX * scaleX), y: Math.round(bottomY * scaleY) }
+    ];
+  };
+
   // 1. फ़ाइल इनपुट
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -55,15 +147,7 @@ export default function DocumentScannerPage() {
             cvs.width = img.width;
             cvs.height = img.height;
 
-            const padX = img.width * 0.08;
-            const padY = img.height * 0.08;
-
-            cornersRef.current = [
-              { x: padX, y: padY },
-              { x: img.width - padX, y: padY },
-              { x: img.width - padX, y: img.height - padY },
-              { x: padX, y: img.height - padY }
-            ];
+            cornersRef.current = detectDocumentCorners(img);
 
             drawCropCanvas(null);
           }
@@ -101,15 +185,7 @@ export default function DocumentScannerPage() {
         cvs.width = newImg.width;
         cvs.height = newImg.height;
 
-        const padX = newImg.width * 0.08;
-        const padY = newImg.height * 0.08;
-
-        cornersRef.current = [
-          { x: padX, y: padY },
-          { x: newImg.width - padX, y: padY },
-          { x: newImg.width - padX, y: newImg.height - padY },
-          { x: padX, y: newImg.height - padY }
-        ];
+        cornersRef.current = detectDocumentCorners(newImg);
 
         drawCropCanvas(null);
       }
@@ -431,6 +507,44 @@ export default function DocumentScannerPage() {
     }, 60);
   };
 
+  // 4-वे ट्रांसफॉर्म इंजन (Rotate & Flip on A4 workspace)
+  const handleTransform = (type: "rotate-left" | "rotate-right" | "flip-h" | "flip-v") => {
+    const baseCvs = baseProcessedCanvasRef.current;
+    if (!baseCvs) return;
+
+    const isRotate = type === "rotate-left" || type === "rotate-right";
+    const outCvs = document.createElement("canvas");
+    outCvs.width = isRotate ? baseCvs.height : baseCvs.width;
+    outCvs.height = isRotate ? baseCvs.width : baseCvs.height;
+
+    const ctx = outCvs.getContext("2d");
+    if (!ctx) return;
+
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, outCvs.width, outCvs.height);
+
+    ctx.save();
+    ctx.translate(outCvs.width / 2, outCvs.height / 2);
+
+    if (type === "rotate-left") {
+      ctx.rotate((-90 * Math.PI) / 180);
+      setOrientation((prev) => (prev === "portrait" ? "landscape" : "portrait"));
+    } else if (type === "rotate-right") {
+      ctx.rotate((90 * Math.PI) / 180);
+      setOrientation((prev) => (prev === "portrait" ? "landscape" : "portrait"));
+    } else if (type === "flip-h") {
+      ctx.scale(-1, 1);
+    } else if (type === "flip-v") {
+      ctx.scale(1, -1);
+    }
+
+    ctx.drawImage(baseCvs, -baseCvs.width / 2, -baseCvs.height / 2);
+    ctx.restore();
+
+    baseProcessedCanvasRef.current = outCvs;
+    processFilterAndCompression(outCvs, filter, brightness, contrast, targetKb);
+  };
+
   const handleOrientationChange = (newMode: PageOrientation) => {
     if (newMode === orientation) return;
     setOrientation(newMode);
@@ -456,7 +570,7 @@ export default function DocumentScannerPage() {
   };
 
   // 5. सटीक पिक्सेल-लेवल फ़िल्टर व कंप्रेशन
-  const processFilterAndCompression = (
+  const processFilterAndCompression = async (
     baseCanvas: HTMLCanvasElement,
     mode: FilterMode,
     bVal: number,
@@ -524,26 +638,23 @@ export default function DocumentScannerPage() {
 
     ctx.putImageData(imgData, 0, 0);
 
-    let minQ = 0.15;
-    let maxQ = 0.96;
-    let bestUrl = finalCanvas.toDataURL("image/jpeg", 0.75);
-    let bestKb = Math.round((bestUrl.length * 3) / 4 / 1024);
+    try {
+      const smartRes = await exportSmartJpg(finalCanvas, {
+        targetKb: desiredKb,
+        isDocument: true,
+        minQuality: 0.15,
+        maxQuality: 0.98,
+      });
 
-    for (let i = 0; i < 5; i++) {
-      const midQ = (minQ + maxQ) / 2;
-      const testUrl = finalCanvas.toDataURL("image/jpeg", midQ);
-      const testKb = Math.round((testUrl.length * 3) / 4 / 1024);
-
-      bestUrl = testUrl;
-      bestKb = testKb;
-
-      if (testKb > desiredKb) maxQ = midQ;
-      else minQ = midQ;
+      setActualKb(smartRes.actualKb);
+      setJpgDownloadUrl(smartRes.dataUrl);
+      return smartRes.dataUrl;
+    } catch {
+      const fallbackUrl = finalCanvas.toDataURL("image/jpeg", 0.75);
+      setActualKb(Math.round((fallbackUrl.length * 3) / 4 / 1024));
+      setJpgDownloadUrl(fallbackUrl);
+      return fallbackUrl;
     }
-
-    setActualKb(bestKb);
-    setJpgDownloadUrl(bestUrl);
-    return bestUrl;
   };
 
   const handleSliderChange = (newFilter: FilterMode, newB: number, newC: number, newKb: number) => {
@@ -685,14 +796,29 @@ export default function DocumentScannerPage() {
             
             <div className="bg-blue-50 border border-blue-200 px-3 py-1.5 rounded-xl text-xs text-blue-900 flex items-center justify-between">
               <span className="font-medium text-[11px] sm:text-xs">👉 चारों कोनों को अलग-अलग खींचकर काग़ज़ पर सेट करें</span>
-              <button
-                type="button"
-                onClick={rotateSourceImage}
-                className="bg-white px-2 py-0.5 rounded-lg border border-blue-300 font-bold hover:bg-blue-100 flex items-center space-x-1 shrink-0 text-xs shadow-sm"
-              >
-                <span>🔄</span>
-                <span>90°</span>
-              </button>
+              <div className="flex items-center space-x-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (imgRef.current) {
+                      cornersRef.current = detectDocumentCorners(imgRef.current);
+                      drawCropCanvas(null);
+                    }
+                  }}
+                  className="bg-emerald-600 text-white px-2.5 py-0.5 rounded-lg border border-emerald-700 font-bold hover:bg-emerald-700 flex items-center space-x-1 shrink-0 text-xs shadow-sm transition active:scale-95"
+                >
+                  <span>⚡</span>
+                  <span>ऑटो-डिटेक्ट</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={rotateSourceImage}
+                  className="bg-white px-2 py-0.5 rounded-lg border border-blue-300 font-bold hover:bg-blue-100 flex items-center space-x-1 shrink-0 text-xs shadow-sm transition active:scale-95"
+                >
+                  <span>🔄</span>
+                  <span>90°</span>
+                </button>
+              </div>
             </div>
 
             <div className="border-2 border-slate-900 rounded-2xl p-1 bg-slate-950 shadow-md overflow-hidden select-none">
@@ -701,7 +827,7 @@ export default function DocumentScannerPage() {
                 onMouseDown={(e) => handlePointerDown(e.clientX, e.clientY)}
                 onMouseMove={(e) => handlePointerMove(e.clientX, e.clientY)}
                 onMouseUp={handlePointerUp}
-                className="h-[48vh] sm:h-[520px] w-full object-contain cursor-crosshair block select-none"
+                className="max-h-[60vh] sm:max-h-[520px] w-auto max-w-full mx-auto cursor-crosshair block select-none shadow-lg"
               />
             </div>
 
@@ -730,7 +856,7 @@ export default function DocumentScannerPage() {
           <div className="flex flex-col lg:grid lg:grid-cols-12 gap-3 items-start">
             
             {/* BOX 1: ऊपर का स्टिकी प्रिव्यू बॉक्स */}
-            <div className="w-full lg:col-span-7 sticky top-[62px] sm:top-3 z-20 bg-white">
+            <div className="w-full lg:col-span-7 sticky top-0 lg:top-3 z-30 bg-white shadow-sm pb-2">
               <div className="border-2 border-slate-900 rounded-2xl p-2.5 bg-white shadow-md">
                 <div className="flex items-center justify-between pb-1.5 mb-1 border-b border-slate-200 text-xs">
                   <span className="font-bold text-slate-900 flex items-center gap-1.5">
@@ -769,6 +895,51 @@ export default function DocumentScannerPage() {
                 >
                   ↩ फिर से कोने बदलें
                 </button>
+              </div>
+
+              {/* 4-वे ट्रांसफॉर्म बटन (घुमाएँ व पलटें) */}
+              <div className="bg-slate-50 p-2 rounded-xl border border-slate-200 space-y-1.5">
+                <span className="text-xs font-bold text-slate-700 block">
+                  दस्तावेज़ सीधा करें (Rotate & Flip):
+                </span>
+                <div className="grid grid-cols-4 gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => handleTransform("rotate-left")}
+                    className="py-1.5 px-1 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg text-xs font-bold text-slate-700 flex flex-col items-center justify-center transition active:scale-95 shadow-2xs"
+                    title="90° बाएँ घुमाएँ"
+                  >
+                    <span className="text-base">⤹</span>
+                    <span className="text-[10px]">90° बाएँ</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleTransform("rotate-right")}
+                    className="py-1.5 px-1 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg text-xs font-bold text-slate-700 flex flex-col items-center justify-center transition active:scale-95 shadow-2xs"
+                    title="90° दाएँ घुमाएँ"
+                  >
+                    <span className="text-base">⤸</span>
+                    <span className="text-[10px]">90° दाएँ</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleTransform("flip-h")}
+                    className="py-1.5 px-1 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg text-xs font-bold text-slate-700 flex flex-col items-center justify-center transition active:scale-95 shadow-2xs"
+                    title="क्षैतिज पलटें (Mirror Flip)"
+                  >
+                    <span className="text-base">⇄</span>
+                    <span className="text-[10px]">मिरर पलटें</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleTransform("flip-v")}
+                    className="py-1.5 px-1 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg text-xs font-bold text-slate-700 flex flex-col items-center justify-center transition active:scale-95 shadow-2xs"
+                    title="लंबवत पलटें (Vertical Flip)"
+                  >
+                    <span className="text-base">⇅</span>
+                    <span className="text-[10px]">उल्टा-सीधा</span>
+                  </button>
+                </div>
               </div>
 
               {/* ओरिएंटेशन स्विच */}

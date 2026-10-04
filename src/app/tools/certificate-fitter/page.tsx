@@ -1,4 +1,5 @@
 'use client';
+import { exportSmartJpg } from "@/lib/image-engine";
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import Link from 'next/link';
@@ -554,33 +555,24 @@ export default function CertificateFitterPage() {
     setIsProcessing(true);
     const canvas = await renderSingleA4Canvas(pages[activePageIndex].croppedNaturalSrc);
 
-    const targetBytes = targetKb * 1024;
-    let minQ = 0.01;
-    let maxQ = 0.98;
-    let bestQ = 0.85;
-    let bestData = canvas.toDataURL('image/jpeg', bestQ);
+    try {
+      const smartRes = await exportSmartJpg(canvas, {
+        targetKb: targetKb,
+        isDocument: true,
+        minQuality: 0.15,
+        maxQuality: 0.98,
+      });
 
-    for (let i = 0; i < 8; i++) {
-      const midQ = (minQ + maxQ) / 2;
-      const dUrl = canvas.toDataURL('image/jpeg', midQ);
-      const head = 'data:image/jpeg;base64,';
-      const currentBytes = Math.round(((dUrl.length - head.length) * 3) / 4);
-
-      if (currentBytes > targetBytes) {
-        maxQ = midQ;
-      } else {
-        bestQ = midQ;
-        bestData = dUrl;
-        minQ = midQ;
-      }
+      setActivePageOutputUrl(smartRes.dataUrl);
+      setActivePageSizeKb(smartRes.actualKb);
+    } catch (err) {
+      console.error("Certificate Smart Export Error:", err);
+      const fallbackUrl = canvas.toDataURL('image/jpeg', 0.85);
+      setActivePageOutputUrl(fallbackUrl);
+      setActivePageSizeKb(targetKb);
+    } finally {
+      setIsProcessing(false);
     }
-
-    const head = 'data:image/jpeg;base64,';
-    const finalKb = Math.max(5, Math.round(((bestData.length - head.length) * 3) / 4 / 1024));
-
-    setActivePageOutputUrl(bestData);
-    setActivePageSizeKb(finalKb);
-    setIsProcessing(false);
   }, [pages, activePageIndex, renderSingleA4Canvas, targetKb]);
 
   useEffect(() => {
@@ -624,25 +616,14 @@ export default function CertificateFitterPage() {
         }
 
         const canvas = await renderSingleA4Canvas(pages[i].croppedNaturalSrc);
-        const targetBytes = perPageKb * 1024;
-        let minQ = 0.01;
-        let maxQ = 0.95;
-        let bestData = canvas.toDataURL('image/jpeg', 0.8);
+        const smartRes = await exportSmartJpg(canvas, {
+          targetKb: perPageKb,
+          isDocument: true,
+          minQuality: 0.15,
+          maxQuality: 0.98,
+        });
 
-        for (let step = 0; step < 6; step++) {
-          const midQ = (minQ + maxQ) / 2;
-          const dUrl = canvas.toDataURL('image/jpeg', midQ);
-          const head = 'data:image/jpeg;base64,';
-          const bytes = Math.round(((dUrl.length - head.length) * 3) / 4);
-          if (bytes > targetBytes) {
-            maxQ = midQ;
-          } else {
-            bestData = dUrl;
-            minQ = midQ;
-          }
-        }
-
-        pdf.addImage(bestData, 'JPEG', 0, 0, pdfW, pdfH, undefined, 'FAST');
+        pdf.addImage(smartRes.dataUrl, 'JPEG', 0, 0, pdfW, pdfH, undefined, 'FAST');
       }
 
       pdf.save(`ExamSewa_Certificates_${pages.length}Pages_${targetKb}KB.pdf`);

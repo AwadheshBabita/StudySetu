@@ -1,4 +1,5 @@
 'use client';
+import { exportSmartJpg } from "@/lib/image-engine";
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import Link from 'next/link';
@@ -144,10 +145,26 @@ export default function SignatureResizePage() {
     const img = new Image();
     img.src = rawImageSrc;
     img.onload = () => {
-      const containerW = Math.min(window.innerWidth * 0.94, 900);
-      const scale = containerW / img.width;
-      canvas.width = containerW;
-      canvas.height = img.height * scale;
+      const isDesktop = typeof window !== 'undefined' && window.innerWidth >= 768;
+      const dpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
+
+      // कंप्यूटर: 1000px चौड़ा खुला दृश्य
+      // मोबाइल: स्क्रीन चौड़ाई में 100% फिट (कोई हिस्सा नहीं कटेगा)
+      const displayW = isDesktop
+        ? Math.min(img.width, 1000)
+        : Math.min(img.width, window.innerWidth * 0.94);
+      const aspect = img.height / img.width;
+      const displayH = Math.round(displayW * aspect);
+
+      // मोबाइल पर 2x रेटिना डेंसिटी (ताकि स्याही शीशे जैसी साफ दिखे), कंप्यूटर पर 1x (1000px)
+      const renderScale = isDesktop ? 1 : Math.min(dpr, 2.5);
+      canvas.width = Math.round(displayW * renderScale);
+      canvas.height = Math.round(displayH * renderScale);
+      canvas.style.width = `${displayW}px`;
+      canvas.style.height = `${displayH}px`;
+
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
 
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
@@ -502,8 +519,8 @@ export default function SignatureResizePage() {
     return canvas;
   }, [getCalculatedDimensions, panOffset, rotation, zoomLevel, brightness, contrast, cleanBgStrength, inkFilter]);
 
-  // सटीक बाइनरी DPI व KB प्रोसेसिंग
-  const processSignature = useCallback(() => {
+  // स्मार्ट कोर इंजन (सिग्नेचर की स्याही, स्ट्रोक्स व बारीक किनारे 100% सुरक्षित)
+  const processSignature = useCallback(async () => {
     if (!cachedImgRef.current) return;
     setIsProcessing(true);
 
@@ -513,22 +530,22 @@ export default function SignatureResizePage() {
       return;
     }
 
-    const { currentDpi } = getCalculatedDimensions();
-    const targetBytes = targetKb * 1024;
+    try {
+      const res = await exportSmartJpg(canvas, {
+        targetKb: targetKb,
+        isDocument: true, // सिग्नेचर के लिए शार्पनेस लॉक
+        minQuality: 0.15,
+        maxQuality: 0.98,
+      });
 
-    // सबसे उच्च गुणवत्ता पर रॉ बेस64 प्राप्त करना
-    const rawData = canvas.toDataURL('image/jpeg', 0.95);
-
-    // बाइनरी JFIF इंजेक्शन + सेफ पैडिंग
-    const finalData = buildAccurateJpeg(rawData, currentDpi, targetBytes);
-
-    const pure = finalData.replace(/^data:image\/jpeg;base64,/, '');
-    const actualKb = Math.round((pure.length * 3) / 4 / 1024);
-
-    setOutputUrl(finalData);
-    setOutputKb(actualKb);
-    setIsProcessing(false);
-  }, [targetKb, renderSignatureCanvas, getCalculatedDimensions]);
+      setOutputUrl(res.dataUrl);
+      setOutputKb(res.actualKb);
+    } catch (err) {
+      console.error("Signature Smart Export Error:", err);
+    } finally {
+      setIsProcessing(false);
+    }
+  }, [targetKb, renderSignatureCanvas]);
 
   useEffect(() => {
     if (imageSrc) {
@@ -1136,10 +1153,14 @@ export default function SignatureResizePage() {
           className="hidden"
         />
 
-        {/* --- मुख्य 2/3 और 1/3 लेआउट --- */}
+        {/* --- मुख्य लेआउट (मोबाइल: ऊपर स्थिर प्रीव्यू + नीचे स्क्रॉलेबल टूलबॉक्स) --- */}
         <div className="block lg:hidden space-y-3">
-          {CanvasSection}
-          {ControlsSidebar}
+          <div className="sticky top-2 z-30 shadow-md rounded-2xl bg-white/95 backdrop-blur-sm border border-slate-200/80 p-1">
+            {CanvasSection}
+          </div>
+          <div className="pt-1">
+            {ControlsSidebar}
+          </div>
         </div>
 
         <div className="hidden lg:grid grid-cols-12 gap-5 items-start">
@@ -1154,7 +1175,7 @@ export default function SignatureResizePage() {
         {/* --- 100% फ्री क्रॉप विंडो --- */}
         {isCropModalOpen && rawImageSrc && (
           <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4">
-            <div className="bg-white rounded-2xl max-w-4xl w-full max-h-[94vh] flex flex-col shadow-2xl overflow-hidden animate-in fade-in">
+            <div className="bg-white rounded-2xl w-full md:w-[96vw] md:max-w-7xl h-[94vh] flex flex-col shadow-2xl overflow-hidden animate-in fade-in">
               <div className="p-3 bg-slate-900 text-white flex items-center justify-between">
                 <div>
                   <h3 className="text-xs sm:text-sm font-black flex items-center gap-1.5">
@@ -1172,7 +1193,7 @@ export default function SignatureResizePage() {
                 </button>
               </div>
 
-              <div className="flex-1 overflow-auto p-2 sm:p-4 flex items-center justify-center bg-slate-950 select-none">
+              <div className="flex-1 overflow-y-auto overflow-x-auto p-2 sm:p-4 flex justify-center items-center md:items-start bg-slate-950 select-none">
                 <canvas
                   ref={cropCanvasRef}
                   onMouseDown={(e) => handleCropDown(e.clientX, e.clientY)}
@@ -1185,7 +1206,7 @@ export default function SignatureResizePage() {
                     if (e.touches[0]) handleCropMove(e.touches[0].clientX, e.touches[0].clientY);
                   }}
                   onTouchEnd={handleCropUp}
-                  className="max-h-[65vh] object-contain shadow-2xl border border-slate-700 rounded bg-white cursor-crosshair touch-none"
+                  className="shadow-2xl border border-slate-700 rounded bg-white cursor-crosshair touch-none block mx-auto max-w-full md:max-w-none h-auto md:h-auto"
                 />
               </div>
 
@@ -1230,6 +1251,167 @@ export default function SignatureResizePage() {
           </div>
         )}
       </div>
+
+      {/* ================= SEO & KNOWLEDGE SECTION START ================= */}
+      <article className="col-span-full w-full max-w-6xl mx-auto mt-14 mb-20 px-4 sm:px-6 lg:px-8 text-slate-800 space-y-12 border-t border-slate-200 pt-10">
+        
+        {/* 1. संपादकीय मुख्य हेडिंग और कीवर्ड रिच परिचय */}
+        <header className="space-y-3">
+          <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight leading-tight">
+            ऑनलाइन सिग्नेचर रीसाइज़र और क्रॉपर (Signature Resizer Pro Online in Exact KB)
+          </h2>
+          <p className="text-sm sm:text-base leading-relaxed text-slate-600">
+            सरकारी परीक्षाओं (SSC, UPSC, UP Police, Railway, IBPS, NTA) और ऑनलाइन फॉर्म में हस्ताक्षर (Signature) अपलोड करते समय सबसे आम समस्या फाइल साइज (10 KB से 20 KB या 50 KB) और आयाम (CM / Pixel / DPI) की होती है। <strong>ExamSewa Signature Resizer Pro</strong> एक क्लाइंट-साइड स्मार्ट टूल है जो बिना धुंधला किए आपके हस्ताक्षर को सटीक KB, 200/300 DPI और सेंटीमीटर/मिलीमीटर में तैयार करता है।
+          </p>
+        </header>
+
+        {/* 2. प्रमुख सरकारी परीक्षाओं के हस्ताक्षर मानक (खुला और उत्तरदायी टेबल) */}
+        <section className="space-y-4">
+          <div className="flex items-center gap-2">
+            <span className="text-xl">📋</span>
+            <h3 className="text-lg sm:text-xl font-bold text-slate-900">
+              प्रमुख सरकारी परीक्षाओं के लिए हस्ताक्षर नियम व मानक (Exam Signature Dimensions)
+            </h3>
+          </div>
+          <p className="text-xs sm:text-sm text-slate-500">
+            विभिन्न भर्ती आयोगों द्वारा निर्धारित किए गए आधिकारिक माप और फाइल साइज की सूची:
+          </p>
+          <div className="overflow-x-auto rounded-xl border border-slate-200 shadow-xs">
+            <table className="w-full text-left text-xs sm:text-sm border-collapse bg-white">
+              <thead>
+                <tr className="bg-slate-100/80 border-b border-slate-200 text-slate-800">
+                  <th className="py-3.5 px-4 font-bold">परीक्षा / बोर्ड का नाम</th>
+                  <th className="py-3.5 px-4 font-bold">माप (Dimensions)</th>
+                  <th className="py-3.5 px-4 font-bold">फाइल साइज़ (Exact KB)</th>
+                  <th className="py-3.5 px-4 font-bold">स्याही का प्रकार</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-slate-600">
+                <tr className="hover:bg-slate-50/50">
+                  <td className="py-3 px-4 font-semibold text-slate-800">SSC (CGL, CHSL, MTS, GD)</td>
+                  <td className="py-3 px-4">4.0 cm × 2.0 cm</td>
+                  <td className="py-3 px-4 font-bold text-blue-600">10 KB – 20 KB</td>
+                  <td className="py-3 px-4">काली स्याही (Black Ball Pen)</td>
+                </tr>
+                <tr className="hover:bg-slate-50/50">
+                  <td className="py-3 px-4 font-semibold text-slate-800">UP Police / UPSSSC</td>
+                  <td className="py-3 px-4">3.5 cm × 1.5 cm</td>
+                  <td className="py-3 px-4 font-bold text-blue-600">5 KB – 20 KB</td>
+                  <td className="py-3 px-4">काली या नीली स्याही</td>
+                </tr>
+                <tr className="hover:bg-slate-50/50">
+                  <td className="py-3 px-4 font-semibold text-slate-800">IBPS / SBI Bank PO & Clerk</td>
+                  <td className="py-3 px-4">140 × 60 Pixels</td>
+                  <td className="py-3 px-4 font-bold text-blue-600">10 KB – 20 KB</td>
+                  <td className="py-3 px-4">केवल काली स्याही (Black Ink)</td>
+                </tr>
+                <tr className="hover:bg-slate-50/50">
+                  <td className="py-3 px-4 font-semibold text-slate-800">UPSC (Civil Services, NDA, CDS)</td>
+                  <td className="py-3 px-4">350 × 350 Pixels (Min)</td>
+                  <td className="py-3 px-4 font-bold text-blue-600">20 KB – 50 KB</td>
+                  <td className="py-3 px-4">काली स्याही (सफेद बैकग्राउंड)</td>
+                </tr>
+                <tr className="hover:bg-slate-50/50">
+                  <td className="py-3 px-4 font-semibold text-slate-800">NTA (NEET, JEE Main, CUET)</td>
+                  <td className="py-3 px-4">3.5 cm × 1.5 cm</td>
+                  <td className="py-3 px-4 font-bold text-blue-600">4 KB – 30 KB</td>
+                  <td className="py-3 px-4">सफेद कागज पर स्पष्ट हस्ताक्षर</td>
+                </tr>
+                <tr className="hover:bg-slate-50/50">
+                  <td className="py-3 px-4 font-semibold text-slate-800">Railway (RRB ALP, NTPC, Group D)</td>
+                  <td className="py-3 px-4">50 × 20 mm</td>
+                  <td className="py-3 px-4 font-bold text-blue-600">10 KB – 50 KB</td>
+                  <td className="py-3 px-4">काली/नीली स्याही</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        {/* 3. चरण-दर-चरण मार्गदर्शिका (How-to Guide) */}
+        <section className="space-y-4">
+          <div className="flex items-center gap-2">
+            <span className="text-xl">⚙️</span>
+            <h3 className="text-lg sm:text-xl font-bold text-slate-900">
+              हस्ताक्षर को सही माप और 20 KB में कैसे रीसाइज़ करें? (Step-by-Step Guide)
+            </h3>
+          </div>
+          <ol className="list-decimal list-outside ml-5 space-y-3 text-sm sm:text-base text-slate-600 leading-relaxed">
+            <li>
+              <strong>हस्ताक्षर अपलोड करें:</strong> सादे सफेद कागज पर किए गए हस्ताक्षर की फोटो मोबाइल कैमरे या गैलरी से अपलोड करें।
+            </li>
+            <li>
+              <strong>फ्री-हैंड बॉक्स क्रॉप (Smart Cropping):</strong> पन्ने के फालतू हिस्से को छोड़ते हुए केवल अपने मुख्य हस्ताक्षर पर उंगली से बॉक्स खींचकर क्रॉप करें।
+            </li>
+            <li>
+              <strong>कागज का पीलापन व बैकग्राउंड साफ करें:</strong> यदि कमरे की रोशनी के कारण कागज पीला या मटमैला दिख रहा है, तो <strong>काली (Black Ink)</strong> या <strong>नीली (Blue Ink)</strong> टोन का चयन करें।
+            </li>
+            <li>
+              <strong>माप (Dimensions) और DPI सेट करें:</strong> अपनी परीक्षा की आवश्यकतानुसार सेंटीमीटर (cm), मिलीमीटर (mm), इंच (inch) या पिक्सल (px) चुनें और 300 DPI सुनिश्चित करें।
+            </li>
+            <li>
+              <strong>सटीक फाइल साइज (Target KB) चुनें:</strong> 20 KB या 50 KB बटन पर क्लिक करें। टूल बिना किसी गुणवत्ता गिरावट के आपकी फाइल को सटीक साइज में डाउनलोड कर देगा।
+            </li>
+          </ol>
+        </section>
+
+        {/* 4. मुख्य लाभ व तकनीकी विशेषताएँ */}
+        <section className="space-y-4">
+          <h3 className="text-lg sm:text-xl font-bold text-slate-900 flex items-center gap-2">
+            <span>✨</span> ExamSewa सिग्नेचर रीसाइज़र के प्रमुख लाभ
+          </h3>
+          <ul className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs sm:text-sm text-slate-600">
+            <li className="flex items-start gap-2.5 bg-slate-50/70 p-3.5 rounded-xl border border-slate-100">
+              <span className="text-emerald-600 font-bold">✔</span>
+              <span><strong>10-Step Binary Search Compression:</strong> 20 KB या 10 KB पर भी स्ट्रोक धुंधले (Blur) नहीं होते।</span>
+            </li>
+            <li className="flex items-start gap-2.5 bg-slate-50/70 p-3.5 rounded-xl border border-slate-100">
+              <span className="text-emerald-600 font-bold">✔</span>
+              <span><strong>300 DPI प्रिंट क्वालिटी:</strong> उच्च रिज़ॉल्यूशन मानक जिससे प्रवेश पत्र और सत्यापन में हस्ताक्षर साफ दिखे।</span>
+            </li>
+            <li className="flex items-start gap-2.5 bg-slate-50/70 p-3.5 rounded-xl border border-slate-100">
+              <span className="text-emerald-600 font-bold">✔</span>
+              <span><strong>100% प्राइवेसी व सुरक्षा:</strong> आपकी फाइल किसी बाहरी सर्वर पर अपलोड नहीं होती; सब कुछ आपके ब्राउज़र में होता है।</span>
+            </li>
+            <li className="flex items-start gap-2.5 bg-slate-50/70 p-3.5 rounded-xl border border-slate-100">
+              <span className="text-emerald-600 font-bold">✔</span>
+              <span><strong>विज्ञापन-मुक्त (Zero Ads):</strong> साइबर कैफे संचालकों और छात्रों के लिए तेज़ व निर्बाध अनुभव।</span>
+            </li>
+          </ul>
+        </section>
+
+        {/* 5. अक्सर पूछे जाने वाले सवाल (FAQ Section) */}
+        <section className="space-y-6">
+          <div className="flex items-center gap-2">
+            <span className="text-xl">❓</span>
+            <h3 className="text-lg sm:text-xl font-bold text-slate-900">
+              अक्सर पूछे जाने वाले सवाल (Frequently Asked Questions - FAQs)
+            </h3>
+          </div>
+          <div className="divide-y divide-slate-200 text-sm">
+            <div className="py-4 space-y-1.5">
+              <h4 className="font-bold text-slate-900 text-base">Q1. 20 KB या 10 KB में रीसाइज़ करने के बाद क्या हस्ताक्षर धुंधला दिखेगा?</h4>
+              <p className="text-slate-600 leading-relaxed">
+                नहीं। हमारा स्मार्ट इंजन केवल बैकग्राउंड और खाली पिक्सल को कंप्रेस करता है, जिससे हस्ताक्षर के मुख्य अक्षरों की शार्पनेस (किनारों का तीखापन) पूरी तरह सुरक्षित रहती है।
+              </p>
+            </div>
+            <div className="py-4 space-y-1.5">
+              <h4 className="font-bold text-slate-900 text-base">Q2. क्या नीले पेन से किए गए हस्ताक्षर को काला (Black) किया जा सकता है?</h4>
+              <p className="text-slate-600 leading-relaxed">
+                हाँ। SSC और बैंक जैसी परीक्षाओं में काली स्याही अनिवार्य होती है। हमारे टूल में 'काली स्याही (Black Ink)' विकल्प चुनते ही नीले पेन का स्ट्रोक डिजिटल ब्लैक में परिवर्तित हो जाता है।
+              </p>
+            </div>
+            <div className="py-4 space-y-1.5">
+              <h4 className="font-bold text-slate-900 text-base">Q3. एसएससी और यूपी पुलिस के लिए हस्ताक्षर का सही सेंटीमीटर माप क्या है?</h4>
+              <p className="text-slate-600 leading-relaxed">
+                एसएससी (SSC) के लिए मानक माप 4.0 सेमी × 2.0 सेमी (10 से 20 KB) है, जबकि यूपी पुलिस और यूपीएसएसएससी (UP Police/UPSSSC) के लिए 3.5 सेमी × 1.5 सेमी (5 से 20 KB) मान्य है।
+              </p>
+            </div>
+          </div>
+        </section>
+
+      </article>
+      {/* ================= SEO & KNOWLEDGE SECTION END ================= */}
     </div>
   );
 }

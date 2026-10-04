@@ -24,7 +24,7 @@ const all20Tools: ToolItem[] = [
   },
   {
     id: "2",
-    title: "सरकारी पोर्टल PDF कंप्रेसर (PDF Compressor)",
+    title: "PDF कंप्रेसर (PDF Compressor)",
     desc: "मार्कशीट व सर्टिफिकेट PDF को बिना धुंधला किए सीधे 100KB, 200KB में कंप्रेस करें।",
     icon: "📄",
     href: "/tools/pdf-compressor",

@@ -1,4 +1,5 @@
 "use client";
+import { exportSmartJpg } from "@/lib/image-engine";
 
 import { useState, useRef, ChangeEvent } from "react";
 
@@ -14,6 +15,7 @@ export default function ExactPixelResizePage() {
   const [processing, setProcessing] = useState<boolean>(false);
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
   const [resultInfo, setResultInfo] = useState<{ width: number; height: number; sizeKB: number } | null>(null);
+  const [targetKb, setTargetKb] = useState<number>(50);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -82,19 +84,20 @@ export default function ExactPixelResizePage() {
       ctx.imageSmoothingQuality = "high";
       ctx.drawImage(img, 0, 0, finalW, finalH);
 
-      const blob = await new Promise<Blob | null>((res) => {
-        canvas.toBlob((b) => res(b), "image/jpeg", 0.92);
+      const smartRes = await exportSmartJpg(canvas, {
+        targetKb: targetKb > 0 ? targetKb : 50,
+        isDocument: false,
+        minQuality: 0.15,
+        maxQuality: 0.98,
       });
 
-      if (blob) {
-        if (downloadUrl) URL.revokeObjectURL(downloadUrl);
-        setDownloadUrl(URL.createObjectURL(blob));
-        setResultInfo({
-          width: finalW,
-          height: finalH,
-          sizeKB: Number((blob.size / 1024).toFixed(1)),
-        });
-      }
+      if (downloadUrl) URL.revokeObjectURL(downloadUrl);
+      setDownloadUrl(smartRes.dataUrl);
+      setResultInfo({
+        width: finalW,
+        height: finalH,
+        sizeKB: smartRes.actualKb,
+      });
     } catch (err) {
       console.error(err);
       alert("रिसाइज करने में त्रुटि आई।");

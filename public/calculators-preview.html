@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ExamSewa - कैलकुलेटर लेआउट डेमो (4 टूल्स)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-50 min-h-screen py-8 px-4 font-sans text-slate-800">
+
+  <div class="max-w-4xl mx-auto space-y-10">
+
+    <!-- डेमो हेडर -->
+    <div class="text-center space-y-1">
+      <span class="px-3 py-1 bg-indigo-100 text-indigo-900 text-xs font-bold rounded-full">होमपेज लेआउट डेमो तुलना</span>
+      <h1 class="text-xl font-black text-slate-900 mt-2">कैलकुलेटर सेक्शन: 4 मुख्य टूल्स</h1>
+      <p class="text-xs text-slate-500">फिजिक्स • केमिस्ट्री • मैथ • CGPA कनवर्टर</p>
+    </div>
+
+    <!-- ------------------------------------------------------------- -->
+    <!-- विकल्प A: होमपेज पर 1 कॉम्पैक्ट "मास्टर हब कार्ड" (हल्का व साफ) -->
+    <!-- ------------------------------------------------------------- -->
+    <div class="space-y-3">
+      <div class="flex items-center gap-2">
+        <span class="px-2 py-0.5 text-xs font-black bg-amber-500 text-white rounded">विकल्प 1</span>
+        <h2 class="text-sm font-bold text-slate-700">1 सिंगल मास्टर बैनर (पेज बिल्कुल भारी नहीं होगा)</h2>
+      </div>
+
+      <div class="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 rounded-3xl p-5 sm:p-6 text-white border border-indigo-500/30 shadow-xl relative overflow-hidden flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div class="space-y-1.5">
+          <div class="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full text-[11px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-400/30">
+            <span>🔬</span> ACADEMIC & SCIENCE SUITE
+          </div>
+          <h3 class="text-lg sm:text-xl font-black tracking-tight">छात्र एवं परीक्षा कैलकुलेटर हब</h3>
+          <p class="text-xs text-slate-300">केमिस्ट्री, फिजिक्स न्यूमेरिकल, मैथ स्टेप-सॉल्वर एवं CGPA कनवर्टर</p>
+          <div class="flex flex-wrap gap-2 pt-1">
+            <span class="text-[10px] bg-white/10 px-2 py-0.5 rounded-md text-slate-200">⚗️ केमिस्ट्री</span>
+            <span class="text-[10px] bg-white/10 px-2 py-0.5 rounded-md text-slate-200">⚡ फिजिक्स</span>
+            <span class="text-[10px] bg-white/10 px-2 py-0.5 rounded-md text-slate-200">📐 मैथ</span>
+            <span class="text-[10px] bg-white/10 px-2 py-0.5 rounded-md text-slate-200">🎓 CGPA स्कैनर</span>
+          </div>
+        </div>
+        <a href="/calculators" class="inline-flex items-center justify-center gap-2 bg-indigo-500 hover:bg-indigo-600 text-white font-bold text-xs sm:text-sm px-5 py-3 rounded-2xl shadow-lg transition active:scale-95 shrink-0">
+          <span>कैलकुलेटर हब खोलें</span>
+          <span>→</span>
+        </a>
+      </div>
+    </div>
+
+    <!-- ------------------------------------------------------------- -->
+    <!-- विकल्प B: होमपेज पर सीधे 4 कार्ड्स का प्रीमियम ग्रिड -->
+    <!-- ------------------------------------------------------------- -->
+    <div class="space-y-3 pt-6 border-t border-slate-200">
+      <div class="flex items-center gap-2">
+        <span class="px-2 py-0.5 text-xs font-black bg-blue-600 text-white rounded">विकल्प 2</span>
+        <h2 class="text-sm font-bold text-slate-700">सीधे 4 कार्ड्स का ग्रिड (तुरंत 1-क्लिक एक्सेस)</h2>
+      </div>
+
+      <div class="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm space-y-4">
+        
+        <div class="flex items-center justify-between px-1">
+          <div>
+            <h3 class="text-base sm:text-lg font-black text-slate-900 flex items-center gap-1.5">
+              <span>🔬</span> छात्र एवं साइंस कैलकुलेटर
+            </h3>
+            <p class="text-xs text-slate-500">स्टेप-बाय-स्टेप हल और स्कोर कन्वर्जन</p>
+          </div>
+          <a href="/calculators" class="text-xs font-bold text-blue-600 bg-blue-50 px-3 py-1.5 rounded-xl border border-blue-200">
+            सभी देखें →
+          </a>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          
+          <!-- 1. केमिस्ट्री -->
+          <a href="/calculators/chemistry-balancer" class="p-4 rounded-2xl border border-slate-200 bg-slate-50/50 hover:bg-emerald-50/30 hover:border-emerald-400 transition flex flex-col justify-between">
+            <div>
+              <div class="flex items-center justify-between mb-2">
+                <span class="text-2xl p-2 bg-emerald-100 rounded-xl">⚗️</span>
+                <span class="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">Chemistry</span>
+              </div>
+              <h4 class="font-bold text-sm text-slate-900">केमिकल समीकरण सॉल्वर</h4>
+              <p class="text-[11px] text-slate-500 mt-1">रासायनिक अभिक्रिया और समीकरण स्टेप-बाय-स्टेप संतुलित करें।</p>
+            </div>
+            <div class="mt-3 pt-2 border-t border-slate-200/60 text-[11px] font-bold text-emerald-700 flex justify-between">
+              <span>समीकरण हल करें</span>
+              <span>→</span>
+            </div>
+          </a>
+
+          <!-- 2. फिजिक्स -->
+          <a href="/calculators/physics-motion" class="p-4 rounded-2xl border border-slate-200 bg-slate-50/50 hover:bg-indigo-50/30 hover:border-indigo-400 transition flex flex-col justify-between">
+            <div>
+              <div class="flex items-center justify-between mb-2">
+                <span class="text-2xl p-2 bg-indigo-100 rounded-xl">⚡</span>
+                <span class="text-[10px] font-bold px-2 py-0.5 rounded bg-indigo-100 text-indigo-800">Physics</span>
+              </div>
+              <h4 class="font-bold text-sm text-slate-900">भौतिकी न्यूमेरिकल सॉल्वर</h4>
+              <p class="text-[11px] text-slate-500 mt-1">गति, त्वरण और दूरी (v = u + at) के सवाल फॉर्मूले सहित हल करें।</p>
+            </div>
+            <div class="mt-3 pt-2 border-t border-slate-200/60 text-[11px] font-bold text-indigo-700 flex justify-between">
+              <span>न्यूमेरिकल हल करें</span>
+              <span>→</span>
+            </div>
+          </a>
+
+          <!-- 3. मैथ -->
+          <a href="/calculators/math-solver" class="p-4 rounded-2xl border border-slate-200 bg-slate-50/50 hover:bg-amber-50/30 hover:border-amber-400 transition flex flex-col justify-between">
+            <div>
+              <div class="flex items-center justify-between mb-2">
+                <span class="text-2xl p-2 bg-amber-100 rounded-xl">📐</span>
+                <span class="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-100 text-amber-800">Math</span>
+              </div>
+              <h4 class="font-bold text-sm text-slate-900">मैथ स्टेप-बाय-स्टेप सॉल्वर</h4>
+              <p class="text-[11px] text-slate-500 mt-1">द्विघात समीकरण, त्रिकोणमिति व ब्याज के संपूर्ण हल।</p>
+            </div>
+            <div class="mt-3 pt-2 border-t border-slate-200/60 text-[11px] font-bold text-amber-800 flex justify-between">
+              <span>सवाल हल करें</span>
+              <span>→</span>
+            </div>
+          </a>
+
+          <!-- 4. CGPA कनवर्टर -->
+          <a href="/calculators/cgpa-converter" class="p-4 rounded-2xl border border-slate-200 bg-slate-50/50 hover:bg-purple-50/30 hover:border-purple-400 transition flex flex-col justify-between">
+            <div>
+              <div class="flex items-center justify-between mb-2">
+                <span class="text-2xl p-2 bg-purple-100 rounded-xl">🎓</span>
+                <span class="text-[10px] font-bold px-2 py-0.5 rounded bg-purple-100 text-purple-800">Result</span>
+              </div>
+              <h4 class="font-bold text-sm text-slate-900">CGPA से प्रतिशत कनवर्टर</h4>
+              <p class="text-[11px] text-slate-500 mt-1">मार्कशीट से CGPA और प्रतिशत निकालें (स्कैनर सपोर्ट सहित)।</p>
+            </div>
+            <div class="mt-3 pt-2 border-t border-slate-200/60 text-[11px] font-bold text-purple-700 flex justify-between">
+              <span>प्रतिशत निकालें</span>
+              <span>→</span>
+            </div>
+          </a>
+
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+</body>
+</html>

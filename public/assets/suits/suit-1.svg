@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 400" width="500" height="400">
+  <!-- Collar Cutout for Neck -->
+  <!-- Suit Shoulders & Body -->
+  <path d="M70,390 L110,130 L180,80 L250,150 L320,80 L390,130 L430,390 Z" fill="#1e232a"/>
+  <!-- Lapels -->
+  <path d="M180,80 L230,220 L250,220 L200,80 Z" fill="#11151a"/>
+  <path d="M320,80 L270,220 L250,220 L300,80 Z" fill="#11151a"/>
+  <!-- White Inner Shirt -->
+  <polygon points="210,90 250,165 290,90" fill="#f8fafc"/>
+  <!-- Red Tie -->
+  <polygon points="244,145 256,145 260,280 250,310 240,280" fill="#dc2626"/>
+  <polygon points="242,145 258,145 255,160 245,160" fill="#991b1b"/>
+</svg>

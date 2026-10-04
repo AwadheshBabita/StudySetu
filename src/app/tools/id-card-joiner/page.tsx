@@ -1,6 +1,8 @@
 'use client';
+import { exportSmartJpg } from "@/lib/image-engine";
 
 import React, { useState, useRef } from 'react';
+import { PDFDocument } from 'pdf-lib';
 import Link from 'next/link';
 
 type PaperType = 'a4' | '4x6';
@@ -27,6 +29,39 @@ export default function IdCardJoinerPage() {
   const [brightness, setBrightness] = useState<number>(100);
   const [contrast, setContrast] = useState<number>(100);
   const [filterMode, setFilterMode] = useState<FilterMode>('original');
+  const [activeCardTab, setActiveCardTab] = useState<'front' | 'back'>('front');
+
+  // इन-प्लेस इमेज रोटेशन और फ्लिप फंक्शन (0% Canvas Crash)
+  const transformCardImage = async (target: 'front' | 'back', angleDeg: number, flipH = false, flipV = false) => {
+    const src = target === 'front' ? frontCropped : backCropped;
+    if (!src) return;
+
+    const img = new Image();
+    img.src = src;
+    await new Promise((res) => { img.onload = res; });
+
+    const c = document.createElement('canvas');
+    const rad = (angleDeg * Math.PI) / 180;
+    const isSideways = Math.abs(angleDeg) === 90 || Math.abs(angleDeg) === 270;
+
+    c.width = isSideways ? img.height : img.width;
+    c.height = isSideways ? img.width : img.height;
+
+    const ctx = c.getContext('2d');
+    if (!ctx) return;
+
+    ctx.translate(c.width / 2, c.height / 2);
+    if (angleDeg !== 0) ctx.rotate(rad);
+    ctx.scale(flipH ? -1 : 1, flipV ? -1 : 1);
+    ctx.drawImage(img, -img.width / 2, -img.height / 2);
+
+    const transformedDataUrl = c.toDataURL('image/jpeg', 0.98);
+    if (target === 'front') {
+      setFrontCropped(transformedDataUrl);
+    } else {
+      setBackCropped(transformedDataUrl);
+    }
+  };
 
   const [targetKb, setTargetKb] = useState<number>(150);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
@@ -271,43 +306,22 @@ export default function IdCardJoinerPage() {
     return canvas;
   };
 
-  // 💥 अल्ट्रा-शार्प 40KB कंप्रेसर
+  // स्मार्ट कोर इंजन (आईडी कार्ड के दोनों हिस्सों के टेक्स्ट व बारीक फॉन्ट 100% सुरक्षित)
   const getCompressedBlob = async (targetSizeKb: number): Promise<Blob | null> => {
-    // 40KB में भी रिज़ॉल्यूशन को ज़्यादा नहीं गिराएंगे ताकि टेक्स्ट एकदम साफ़ रहे
-    let scale = 1.0;
-    if (targetSizeKb < 35) scale = 0.65;
-    else if (targetSizeKb < 80) scale = 0.85;
-
-    let canvas = await generateSheetCanvas(scale);
+    const canvas = await generateSheetCanvas(1.0);
     if (!canvas) return null;
 
-    let minQuality = 0.08;
-    let maxQuality = 0.98;
-    let bestBlob: Blob | null = null;
-
-    for (let iter = 0; iter < 8; iter++) {
-      const midQuality = (minQuality + maxQuality) / 2;
-      const blob: Blob | null = await new Promise((res) => {
-        canvas?.toBlob((b) => res(b), 'image/jpeg', midQuality);
+    try {
+      const smartRes = await exportSmartJpg(canvas, {
+        targetKb: targetSizeKb,
+        isDocument: true,
+        minQuality: 0.15,
+        maxQuality: 0.98,
       });
-
-      if (!blob) break;
-
-      const curKb = blob.size / 1024;
-      bestBlob = blob;
-
-      if (Math.abs(curKb - targetSizeKb) <= targetSizeKb * 0.05) {
-        break;
-      }
-
-      if (curKb > targetSizeKb) {
-        maxQuality = midQuality;
-      } else {
-        minQuality = midQuality;
-      }
+      return smartRes.blob;
+    } catch {
+      return new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/jpeg', 0.85));
     }
-
-    return bestBlob;
   };
 
   const handleDownload = async (format: 'jpg' | 'pdf') => {
@@ -332,47 +346,19 @@ export default function IdCardJoinerPage() {
         const pW = (spec.sheetW_mm * 72) / 25.4;
         const pH = (spec.sheetH_mm * 72) / 25.4;
 
-        const pdfHeader = `%PDF-1.4\n`;
-        const obj1 = `1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n`;
-        const obj2 = `2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n`;
-        const obj3 = `3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pW} ${pH}] /Resources << /XObject << /Im1 4 0 R >> >> /Contents 5 0 R >>\nendobj\n`;
-        const obj4H = `4 0 obj\n<< /Type /XObject /Subtype /Image /Width 1400 /Height 1980 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${imgBytes.length} >>\nstream\n`;
-        const obj4F = `\nendstream\nendobj\n`;
-        const streamC = `q\n${pW} 0 0 ${pH} 0 0 cm\n/Im1 Do\nQ`;
-        const obj5 = `5 0 obj\n<< /Length ${streamC.length} >>\nstream\n${streamC}\nendstream\nendobj\n`;
+        const pdfDoc = await PDFDocument.create();
+        const page = pdfDoc.addPage([pW, pH]);
+        const embeddedImg = await pdfDoc.embedJpg(imgBytes);
 
-        const enc = new TextEncoder();
-        const bHeader = enc.encode(pdfHeader);
-        const bObj1 = enc.encode(obj1);
-        const bObj2 = enc.encode(obj2);
-        const bObj3 = enc.encode(obj3);
-        const bObj4H = enc.encode(obj4H);
-        const bObj4F = enc.encode(obj4F);
-        const bObj5 = enc.encode(obj5);
+        page.drawImage(embeddedImg, {
+          x: 0,
+          y: 0,
+          width: pW,
+          height: pH,
+        });
 
-        const off1 = bHeader.length;
-        const off2 = off1 + bObj1.length;
-        const off3 = off2 + bObj2.length;
-        const off4 = off3 + bObj3.length;
-        const off5 = off4 + bObj4H.length + imgBytes.length + bObj4F.length;
-        const xrefOff = off5 + bObj5.length;
-
-        const xref = `xref\n0 6\n0000000000 65535 f \n${String(off1).padStart(10, '0')} 00000 n \n${String(off2).padStart(10, '0')} 00000 n \n${String(off3).padStart(10, '0')} 00000 n \n${String(off4).padStart(10, '0')} 00000 n \n${String(off5).padStart(10, '0')} 00000 n \ntrailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xrefOff}\n%%EOF`;
-        const bXref = enc.encode(xref);
-
-        const finalPdf = new Uint8Array(xrefOff + bXref.length);
-        let cur = 0;
-        finalPdf.set(bHeader, cur); cur += bHeader.length;
-        finalPdf.set(bObj1, cur); cur += bObj1.length;
-        finalPdf.set(bObj2, cur); cur += bObj2.length;
-        finalPdf.set(bObj3, cur); cur += bObj3.length;
-        finalPdf.set(bObj4H, cur); cur += bObj4H.length;
-        finalPdf.set(imgBytes, cur); cur += imgBytes.length;
-        finalPdf.set(bObj4F, cur); cur += bObj4F.length;
-        finalPdf.set(bObj5, cur); cur += bObj5.length;
-        finalPdf.set(bXref, cur);
-
-        const pdfBlob = new Blob([finalPdf], { type: 'application/pdf' });
+        const finalPdf = await pdfDoc.save();
+        const pdfBlob = new Blob([finalPdf.buffer as ArrayBuffer], { type: 'application/pdf' });
         const url = URL.createObjectURL(pdfBlob);
         const a = document.createElement('a');
         a.href = url;
@@ -382,6 +368,25 @@ export default function IdCardJoinerPage() {
       }
     } finally {
       setIsProcessing(false);
+    }
+  };
+
+    const handleShare = async () => {
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: 'ExamSewa ID Card Joiner',
+          text: 'ExamSewa आईडी कार्ड जॉइनर टूल से तैयार दस्तावेज़',
+          url: window.location.href,
+        });
+      } else if (navigator.clipboard) {
+        await navigator.clipboard.writeText(window.location.href);
+        alert('शेयर लिंक कॉपी हो गया है!');
+      }
+    } catch (err: any) {
+      if (err.name !== 'AbortError') {
+        alert('शेयर करने में समस्या आई।');
+      }
     }
   };
 
@@ -461,7 +466,7 @@ export default function IdCardJoinerPage() {
   };
 
   return (
-    <div className="h-screen bg-slate-100 text-slate-900 flex flex-col overflow-hidden select-none">
+    <div className="min-h-screen bg-slate-100 text-slate-900 flex flex-col select-none">
       
       {/* 1. हेडर */}
       <header className="border-b border-slate-200 bg-white px-3 sm:px-4 h-11 flex items-center justify-between shrink-0 shadow-xs z-30">
@@ -484,10 +489,10 @@ export default function IdCardJoinerPage() {
       </header>
 
       {/* 2. मुख्य कार्यक्षेत्र */}
-      <main className="flex-1 flex flex-col lg:flex-row overflow-hidden p-2 sm:p-2.5 gap-2 sm:gap-2.5">
+      <main className="flex-1 flex flex-col lg:flex-row items-start p-2 sm:p-2.5 gap-3 max-w-7xl mx-auto w-full">
         
         {/* 💥 टॉप फिक्स प्रीव्यू */}
-        <div className="h-[40vh] lg:h-auto lg:flex-1 bg-slate-200/90 rounded-2xl border-2 border-slate-300 shadow-inner p-2 flex flex-col items-center justify-center relative shrink-0 overflow-hidden z-10">
+        <div className="w-full lg:flex-1 sticky top-1 lg:top-3 z-30 bg-slate-200/95 rounded-2xl border-2 border-slate-400 shadow-md p-2 flex flex-col items-center justify-center relative shrink-0 overflow-hidden backdrop-blur-sm max-h-[44vh] sm:max-h-[48vh] lg:max-h-none">
           
           <div className="w-full flex items-center justify-between mb-1 text-[10px] sm:text-[11px] font-bold text-slate-700 px-2 shrink-0">
             <span>
@@ -502,10 +507,10 @@ export default function IdCardJoinerPage() {
             </span>
           </div>
 
-          <div className="w-full flex-1 flex items-center justify-center overflow-hidden p-1">
+          <div className="w-full flex-1 flex items-center justify-center lg:items-start lg:justify-center overflow-hidden lg:overflow-y-auto p-1 lg:p-4">
             <div
-              className={`bg-white rounded-xl shadow-lg border-2 border-slate-900 transition-all flex flex-col items-center max-h-full max-w-full p-2 relative ${
-                paperType === 'a4' ? 'justify-start pt-3' : 'justify-center'
+              className={`bg-white rounded-xl shadow-xl border-2 border-slate-900 transition-all flex flex-col items-center max-h-full max-w-full p-2 lg:p-6 relative lg:w-[600px] lg:!h-auto ${
+                paperType === 'a4' ? 'justify-start pt-3 lg:pt-8' : 'justify-center'
               }`}
               style={{
                 aspectRatio: `${spec.sheetW_mm} / ${spec.sheetH_mm}`,
@@ -520,6 +525,10 @@ export default function IdCardJoinerPage() {
                 {/* फ्रंट कार्ड */}
                 <div
                   className={`rounded-xs overflow-hidden flex items-center justify-center bg-slate-50 transition-all ${
+                    layoutMode === 'vertical'
+                      ? 'lg:!w-[320px] lg:!h-[202px]'
+                      : 'lg:!w-[250px] lg:!h-[158px]'
+                  } ${
                     showBorder ? 'border-2 border-black shadow-xs' : 'border border-dashed border-slate-300'
                   }`}
                   style={{
@@ -548,6 +557,10 @@ export default function IdCardJoinerPage() {
                 {/* बैक कार्ड */}
                 <div
                   className={`rounded-xs overflow-hidden flex items-center justify-center bg-slate-50 transition-all ${
+                    layoutMode === 'vertical'
+                      ? 'lg:!w-[320px] lg:!h-[202px]'
+                      : 'lg:!w-[250px] lg:!h-[158px]'
+                  } ${
                     showBorder ? 'border-2 border-black shadow-xs' : 'border border-dashed border-slate-300'
                   }`}
                   style={{
@@ -588,7 +601,7 @@ export default function IdCardJoinerPage() {
         </div>
 
         {/* 💥 निचला स्क्रोलिंग टूलबॉक्स */}
-        <div className="flex-1 lg:flex-none lg:w-80 bg-white rounded-2xl border-2 border-slate-900 shadow-md p-3 overflow-y-auto z-20 space-y-3 pb-32">
+        <div className="w-full lg:w-88 xl:w-96 bg-white rounded-2xl border-2 border-slate-900 shadow-md p-3.5 space-y-3 pb-28 sm:pb-12 z-20">
           
           <div className="lg:hidden flex flex-col items-center justify-center -mt-1 pb-1">
             <div className="w-12 h-1.5 bg-slate-400 rounded-full" />
@@ -692,6 +705,74 @@ export default function IdCardJoinerPage() {
                 }`}
               >
                 ऊपर - नीचे
+              </button>
+            </div>
+          </div>
+
+          {/* 3.5 दिशा व घुमाव (Rotate & Flip) */}
+          <div className="bg-slate-50 p-2 rounded-xl border border-slate-200 space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-black text-slate-700 uppercase tracking-wider">
+                दिशा व घुमाव
+              </span>
+              <div className="flex bg-slate-200/90 p-0.5 rounded-lg text-[10px] font-bold">
+                <button
+                  type="button"
+                  onClick={() => setActiveCardTab('front')}
+                  className={`px-2 py-0.5 rounded-md transition cursor-pointer ${
+                    activeCardTab === 'front'
+                      ? 'bg-blue-600 text-white font-black shadow-2xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Front
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveCardTab('back')}
+                  className={`px-2 py-0.5 rounded-md transition cursor-pointer ${
+                    activeCardTab === 'back'
+                      ? 'bg-blue-600 text-white font-black shadow-2xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Back
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-4 gap-1">
+              <button
+                type="button"
+                onClick={() => transformCardImage(activeCardTab, -90)}
+                className="py-1.5 bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 rounded-lg text-xs font-black flex items-center justify-center cursor-pointer transition shadow-2xs active:scale-95"
+                title="90° बाएँ घुमाएँ"
+              >
+                ↺ -90°
+              </button>
+              <button
+                type="button"
+                onClick={() => transformCardImage(activeCardTab, 90)}
+                className="py-1.5 bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 rounded-lg text-xs font-black flex items-center justify-center cursor-pointer transition shadow-2xs active:scale-95"
+                title="90° दाएँ घुमाएँ"
+              >
+                ↻ +90°
+              </button>
+              <button
+                type="button"
+                onClick={() => transformCardImage(activeCardTab, 0, true, false)}
+                className="py-1.5 bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 rounded-lg text-xs font-black flex items-center justify-center cursor-pointer transition shadow-2xs active:scale-95"
+                title="क्षैतिज फ्लिप (Mirror)"
+              >
+                ⇄ क्षैतिज
+              </button>
+              <button
+                type="button"
+                onClick={() => transformCardImage(activeCardTab, 0, false, true)}
+                className="py-1.5 bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 rounded-lg text-xs font-black flex items-center justify-center cursor-pointer transition shadow-2xs active:scale-95"
+                title="लंबवत फ्लिप (Invert)"
+              >
+                ⇅ लंबवत
               </button>
             </div>
           </div>
@@ -805,7 +886,7 @@ export default function IdCardJoinerPage() {
           {/* 7. डाउनलोड सेक्शन */}
           <div className="pt-2 border-t-2 border-slate-300 space-y-1.5">
             <span className="text-[10px] font-black text-slate-700 uppercase tracking-wider block text-center">
-              आउटपुट डाउनलोड व प्रिंट
+              आउटपुट डाउनलोड व शेयर
             </span>
             <div className="grid grid-cols-3 gap-1.5">
               <button
@@ -831,14 +912,14 @@ export default function IdCardJoinerPage() {
               </button>
 
               <button
-                onClick={handlePrint}
+                onClick={handleShare}
                 disabled={(!frontCropped && !backCropped) || isProcessing}
                 className={`py-3 bg-blue-600 hover:bg-blue-700 text-white font-black text-xs rounded-xl shadow-md cursor-pointer flex items-center justify-center gap-1 transition-all active:scale-98 ${
                   (!frontCropped && !backCropped) || isProcessing ? 'opacity-50 cursor-not-allowed' : ''
                 }`}
               >
-                <span>🖨️</span>
-                <span>प्रिंट</span>
+                <span>🔗</span>
+                <span>शेयर करें</span>
               </button>
             </div>
           </div>
@@ -903,24 +984,24 @@ export default function IdCardJoinerPage() {
 
               {activeCorner !== null && (
                 <div
-                  className="absolute w-24 h-24 rounded-full border-3 border-white shadow-2xl overflow-hidden pointer-events-none z-30 bg-white"
+                  className="absolute w-12 h-12 rounded-full border-2 border-white shadow-lg overflow-hidden pointer-events-none z-30 bg-white"
                   style={{
-                    left: `${corners[activeCorner].x - 48}px`,
-                    top: `${corners[activeCorner].y - 115}px`,
+                    left: `${corners[activeCorner].x - 24}px`,
+                    top: `${corners[activeCorner].y - 65}px`,
                   }}
                 >
                   <div
                     className="w-full h-full relative"
                     style={{
                       backgroundImage: `url(${cropImgSrc})`,
-                      backgroundPosition: `-${(corners[activeCorner].x / cropImgDims.width) * (cropImageRef.current?.naturalWidth || 1) * 2 - 48}px -${(corners[activeCorner].y / cropImgDims.height) * (cropImageRef.current?.naturalHeight || 1) * 2 - 48}px`,
+                      backgroundPosition: `-${(corners[activeCorner].x / cropImgDims.width) * (cropImageRef.current?.naturalWidth || 1) * 2 - 24}px -${(corners[activeCorner].y / cropImgDims.height) * (cropImageRef.current?.naturalHeight || 1) * 2 - 24}px`,
                       backgroundSize: `${(cropImageRef.current?.naturalWidth || 1) * 2}px ${(cropImageRef.current?.naturalHeight || 1) * 2}px`,
                     }}
                   >
                     <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                       <div className="w-full h-0.5 bg-red-500/80" />
                       <div className="absolute h-full w-0.5 bg-red-500/80" />
-                      <div className="w-2 h-2 border border-red-500 rounded-full" />
+                      <div className="w-1.5 h-1.5 border border-red-500 rounded-full" />
                     </div>
                   </div>
                 </div>
@@ -943,6 +1024,89 @@ export default function IdCardJoinerPage() {
 
         </div>
       )}
+
+      {/* ================= SEO & KNOWLEDGE SECTION (SCROLLABLE BELOW TOOL) ================= */}
+      <section className="w-full bg-white border-t border-slate-200 mt-8 py-12 px-4 sm:px-6 lg:px-8 shrink-0">
+        <article className="max-w-5xl mx-auto text-slate-800 space-y-10">
+          
+          <header className="space-y-3">
+            <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight leading-tight">
+              आईडी कार्ड फ्रंट और बैक जॉइनर (ID Card Front & Back Joiner Online)
+            </h2>
+            <p className="text-sm sm:text-base leading-relaxed text-slate-600">
+              सरकारी परीक्षाओं, छात्रवृत्ति (Scholarship), बैंक खाता खोलने और ऑनलाइन फॉर्म में पहचान पत्र (जैसे <strong>आधार कार्ड, पैन कार्ड, वोटर आईडी या ड्राइविंग लाइसेंस</strong>) के दोनों तरफ (Front & Back) को एक ही पेज या सिंगल फोटो में अपलोड करना अनिवार्य होता है। <strong>ExamSewa ID Card Joiner</strong> बिना फोटोशॉप के दोनों हिस्सों को जोड़कर सटीक 100 KB – 200 KB JPG या डायरेक्ट A4 प्रिंट PDF तैयार करता है।
+            </p>
+          </header>
+
+          <div className="space-y-4">
+            <h3 className="text-lg sm:text-xl font-bold text-slate-900 flex items-center gap-2">
+              <span>📋</span> पहचान पत्रों के आधिकारिक अपलोड व प्रिंट मानक
+            </h3>
+            <div className="overflow-x-auto rounded-xl border border-slate-200 shadow-xs">
+              <table className="w-full text-left text-xs sm:text-sm border-collapse bg-white">
+                <thead>
+                  <tr className="bg-slate-100/80 border-b border-slate-200 text-slate-800">
+                    <th className="py-3 px-4 font-bold">पहचान पत्र</th>
+                    <th className="py-3 px-4 font-bold">मानक लेआउट</th>
+                    <th className="py-3 px-4 font-bold">फाइल साइज (Target KB)</th>
+                    <th className="py-3 px-4 font-bold">मुख्य आवश्यकता</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-slate-600">
+                  <tr className="hover:bg-slate-50/50">
+                    <td className="py-3 px-4 font-semibold text-slate-900">आधार कार्ड (Aadhaar Card)</td>
+                    <td className="py-3 px-4">ऊपर-नीचे (Vertical) या अगल-बगल</td>
+                    <td className="py-3 px-4 font-bold text-blue-600">100 KB – 300 KB</td>
+                    <td className="py-3 px-4">QR कोड और पूरा पता स्पष्ट रूप से पठनीय हो</td>
+                  </tr>
+                  <tr className="hover:bg-slate-50/50">
+                    <td className="py-3 px-4 font-semibold text-slate-900">पैन कार्ड (PAN Card)</td>
+                    <td className="py-3 px-4">क्षैतिज (Side-by-Side)</td>
+                    <td className="py-3 px-4 font-bold text-blue-600">50 KB – 200 KB</td>
+                    <td className="py-3 px-4">हस्ताक्षर और 10-अंकों का अल्फ़ान्यूमेरिक नंबर साफ हो</td>
+                  </tr>
+                  <tr className="hover:bg-slate-50/50">
+                    <td className="py-3 px-4 font-semibold text-slate-900">वोटर आईडी (EPIC Card)</td>
+                    <td className="py-3 px-4">ऊपर-नीचे या A4 लेआउट</td>
+                    <td className="py-3 px-4 font-bold text-blue-600">100 KB – 500 KB</td>
+                    <td className="py-3 px-4">EPIC नंबर और विधानसभा क्षेत्र स्पष्ट दिखे</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <h3 className="text-lg sm:text-xl font-bold text-slate-900 flex items-center gap-2">
+              <span>⚙️</span> आईडी कार्ड दोनों साइड कैसे जोड़ें?
+            </h3>
+            <ol className="list-decimal list-outside ml-5 space-y-2 text-sm text-slate-600 leading-relaxed">
+              <li><strong>Front Photo अपलोड करें:</strong> कार्ड के सामने वाले हिस्से की साफ फोटो चुनें।</li>
+              <li><strong>Back Photo अपलोड करें:</strong> कार्ड के पिछले हिस्से (पते वाले भाग) की फोटो चुनें।</li>
+              <li><strong>कार्ड सीधा व क्रॉप करें:</strong> यदि फोटो टेढ़ी है तो 4-बिंदुओं वाले टूल से कोनों को मिलाकर सीधा करें।</li>
+              <li><strong>लेआउट चुनें:</strong> आवश्यकतानुसार वर्टिकल (ऊपर-नीचे) या हॉरिजॉन्टल चुनें।</li>
+              <li><strong>डाउनलोड करें:</strong> ऑनलाइन फॉर्म के लिए JPG या डायरेक्ट प्रिंट के लिए A4 PDF डाउनलोड करें।</li>
+            </ol>
+          </div>
+
+          <div className="space-y-4 border-t border-slate-200 pt-8">
+            <h3 className="text-lg sm:text-xl font-bold text-slate-900 flex items-center gap-2">
+              <span>❓</span> अक्सर पूछे जाने वाले सवाल (FAQs)
+            </h3>
+            <div className="divide-y divide-slate-200 text-sm">
+              <div className="py-3 space-y-1">
+                <h4 className="font-bold text-slate-900">Q1. क्या यहाँ आधार कार्ड जोड़ना पूरी तरह सुरक्षित है?</h4>
+                <p className="text-slate-600">हाँ। यह टूल 100% क्लाइंट-साइड है। आपका कार्ड किसी बाहरी सर्वर पर अपलोड नहीं होता; पूरी प्रोसेसिंग आपके ब्राउज़र में होती है।</p>
+              </div>
+              <div className="py-3 space-y-1">
+                <h4 className="font-bold text-slate-900">Q2. क्या इसे सीधे A4 पेपर पर फोटोकॉपी जैसा प्रिंट कर सकते हैं?</h4>
+                <p className="text-slate-600">हाँ, 'A4 PDF' बटन पर क्लिक करते ही दोनों साइड A4 शीट के मानक अनुपात में सेट होकर डाउनलोड हो जाती हैं।</p>
+              </div>
+            </div>
+          </div>
+
+        </article>
+      </section>
 
     </div>
   );

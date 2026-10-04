@@ -5,7 +5,7 @@ import React, { useState } from 'react';
 export default function ContactPage() {
   const [copied, setCopied] = useState(false);
 
-  const contactEmail = "support@examsewa.online"; // अपनी आधिकारिक ईमेल यहाँ रख सकते हैं
+  const contactEmail = "examsewa.official@gmail.com"; // अपनी आधिकारिक ईमेल यहाँ रख सकते हैं
   const whatsappNumber = "919876543210"; // यहाँ अपना WhatsApp नंबर बदल सकते हैं
 
   const handleCopyEmail = () => {

@@ -1,0 +1,541 @@
+"use client";
+
+import React, { useState, useRef, useEffect } from "react";
+import Link from "next/link";
+
+interface PdfPageItem {
+  pageNumber: number;
+  dataUrl: string;
+  width: number;
+  height: number;
+  rotation: number;
+  selected: boolean;
+}
+
+export default function PdfToJpgPage() {
+  const [step, setStep] = useState<"upload" | "workspace">("upload");
+  const [fileName, setFileName] = useState<string>("");
+  const [pages, setPages] = useState<PdfPageItem[]>([]);
+  const [activePageIndex, setActivePageIndex] = useState<number>(0);
+  const [scaleDpi, setScaleDpi] = useState<number>(2.0); // 2.0 = ~150 DPI, 3.0 = ~300 DPI (HD)
+  const [format, setFormat] = useState<"image/jpeg" | "image/png">("image/jpeg");
+  const [isProcessing, setIsProcessing] = useState<boolean>(false);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const pdfDataRef = useRef<ArrayBuffer | null>(null);
+
+  // PDF.js CDN लोड करना
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if ((window as any).pdfjsLib) return;
+
+    const script = document.createElement("script");
+    script.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
+    script.async = true;
+    script.onload = () => {
+      const pdfjs = (window as any).pdfjsLib;
+      if (pdfjs) {
+        pdfjs.GlobalWorkerOptions.workerSrc =
+          "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+      }
+    };
+    document.body.appendChild(script);
+  }, []);
+
+  // PDF फाइल चुनना
+  const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
+      alert("कृपया केवल मान्य PDF फ़ाइल चुनें।");
+      return;
+    }
+
+    setFileName(file.name);
+    setIsProcessing(true);
+
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      pdfDataRef.current = arrayBuffer;
+      await renderAllPdfPages(arrayBuffer, scaleDpi);
+      setStep("workspace");
+    } catch (err) {
+      console.error(err);
+      alert("PDF प्रोसेस करने में त्रुटि आई। कृपया पुनः प्रयास करें।");
+    } finally {
+      setIsProcessing(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  // सभी पेजों को रेंडर करना
+  const renderAllPdfPages = async (arrayBuffer: ArrayBuffer, currentScale: number) => {
+    const pdfjs = (window as any).pdfjsLib;
+    if (!pdfjs) {
+      alert("PDF इंजन लोड हो रहा है, कृपया 2 सेकंड बाद पुनः फ़ाइल चुनें।");
+      return;
+    }
+
+    const loadingTask = pdfjs.getDocument({ data: arrayBuffer });
+    const pdf = await loadingTask.promise;
+    const totalPages = pdf.numPages;
+    const newPages: PdfPageItem[] = [];
+
+    for (let i = 1; i <= totalPages; i++) {
+      const page = await pdf.getPage(i);
+      const viewport = page.getViewport({ scale: currentScale });
+
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d", { alpha: false });
+      canvas.width = Math.round(viewport.width);
+      canvas.height = Math.round(viewport.height);
+
+      if (ctx) {
+        // बैकग्राउंड को प्योर व्हाइट रखना
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // क्रिस्प टेक्स्ट और हाई स्मूथिंग सेटिंग्स
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = "high";
+
+        // iLovePDF स्टैंडर्ड: प्रिंट इंटेंट के साथ रेंडर
+        await page.render({
+          canvasContext: ctx,
+          viewport: viewport,
+          intent: "print"
+        }).promise;
+
+        // 0.82 क्वालिटी: क्रिस्प टेक्स्ट + संतुलित फ़ाइल साइज़ (~250-350 KB)
+        const quality = format === "image/png" ? 1.0 : 0.82;
+        const dataUrl = canvas.toDataURL(format, quality);
+        newPages.push({
+          pageNumber: i,
+          dataUrl,
+          width: viewport.width,
+          height: viewport.height,
+          rotation: 0,
+          selected: true,
+        });
+      }
+    }
+
+    setPages(newPages);
+    setActivePageIndex(0);
+  };
+
+  // पेज घुमाना (90° Rotate)
+  const handleRotatePage = (index: number) => {
+    setPages((prev) =>
+      prev.map((item, idx) => {
+        if (idx !== index) return item;
+        const nextRot = (item.rotation + 90) % 360;
+
+        const img = new Image();
+        img.src = item.dataUrl;
+        const canvas = document.createElement("canvas");
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return item;
+
+        if (nextRot === 90 || nextRot === 270) {
+          canvas.width = item.height;
+          canvas.height = item.width;
+        } else {
+          canvas.width = item.width;
+          canvas.height = item.height;
+        }
+
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = "high";
+
+        ctx.translate(canvas.width / 2, canvas.height / 2);
+        ctx.rotate((90 * Math.PI) / 180);
+        ctx.drawImage(img, -item.width / 2, -item.height / 2);
+
+        const quality = format === "image/png" ? 1.0 : 0.82;
+        return {
+          ...item,
+          rotation: nextRot,
+          dataUrl: canvas.toDataURL(format, quality),
+          width: canvas.width,
+          height: canvas.height,
+        };
+      })
+    );
+  };
+
+  // पेज टिक / अनटिक
+  const toggleSelectPage = (index: number) => {
+    setPages((prev) =>
+      prev.map((item, idx) => (idx === index ? { ...item, selected: !item.selected } : item))
+    );
+  };
+
+  // सिंगल इमेज डाउनलोड
+  const downloadSinglePage = (pageItem: PdfPageItem) => {
+    const ext = format === "image/png" ? "png" : "jpg";
+    const link = document.createElement("a");
+    link.href = pageItem.dataUrl;
+    link.download = `${fileName.replace(/\.pdf$/i, "")}_page_${pageItem.pageNumber}.${ext}`;
+    link.click();
+  };
+
+  // सभी चुने गए पेज डाउनलोड
+  const handleDownloadAll = () => {
+    const selectedList = pages.filter((p) => p.selected);
+    if (selectedList.length === 0) {
+      alert("कृपया डाउनलोड करने के लिए कम से कम एक पेज चुनें।");
+      return;
+    }
+
+    selectedList.forEach((pageItem, i) => {
+      setTimeout(() => {
+        downloadSinglePage(pageItem);
+      }, i * 350);
+    });
+  };
+
+  // शेयर फंक्शन (WhatsApp / Web Share)
+  const handleSharePage = async (pageItem: PdfPageItem) => {
+    try {
+      const res = await fetch(pageItem.dataUrl);
+      const blob = await res.blob();
+      const ext = format === "image/png" ? "png" : "jpg";
+      const file = new File([blob], `page_${pageItem.pageNumber}.${ext}`, { type: format });
+
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: `PDF Page ${pageItem.pageNumber}`,
+          text: `PDF to Image: पृष्ठ संख्या ${pageItem.pageNumber}`,
+        });
+      } else {
+        downloadSinglePage(pageItem);
+        window.open(
+          "https://api.whatsapp.com/send?text=" +
+            encodeURIComponent(`मैंने PDF से पेज ${pageItem.pageNumber} की तस्वीर तैयार की है!`),
+          "_blank"
+        );
+      }
+    } catch (e) {
+      console.log("Share dismissed or error:", e);
+    }
+  };
+
+  const activePage = pages[activePageIndex];
+
+  return (
+    <div className="min-h-screen bg-slate-100 text-slate-800 flex flex-col">
+      {/* हेडर बार */}
+      <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 py-2.5 flex items-center justify-between">
+          <Link
+            href="/"
+            className="text-xs font-bold text-slate-600 hover:text-blue-600 flex items-center gap-1 transition"
+          >
+            ← मुख्य टूल्स पर वापस जाएँ
+          </Link>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-black uppercase tracking-wider bg-red-100 text-red-700 px-2.5 py-0.5 rounded-full border border-red-200">
+              PDF to JPG
+            </span>
+          </div>
+        </div>
+      </header>
+
+      {/* स्टेप 1: क्लीन सिंगल सेलेक्टर बॉक्स */}
+      {step === "upload" && (
+        <main className="min-h-[calc(100dvh-115px)] flex flex-col items-center justify-center px-4 py-2">
+          <div className="max-w-sm sm:max-w-md w-full bg-white rounded-3xl border border-slate-200 shadow-xl p-6 sm:p-8 text-center space-y-4">
+            <div className="w-20 h-20 bg-red-50 text-red-600 rounded-3xl flex items-center justify-center text-4xl mx-auto shadow-inner border border-red-100">
+              📄
+            </div>
+
+            <div>
+              <h1 className="text-xl sm:text-2xl font-black text-slate-900">
+                PDF to JPG कनवर्टर
+              </h1>
+              <p className="text-xs text-slate-500 mt-1 font-medium">
+                PDF के हर पेज को तुरंत हाई क्वालिटी JPG इमेज में बदलें
+              </p>
+            </div>
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="application/pdf"
+              id="single-pdf-input"
+              className="hidden"
+              onChange={handleFile}
+            />
+
+            <label
+              htmlFor="single-pdf-input"
+              className={`block w-full py-4 px-6 rounded-2xl font-black text-sm text-white shadow-lg cursor-pointer transition active:scale-98 ${
+                isProcessing
+                  ? "bg-slate-400 cursor-not-allowed"
+                  : "bg-red-600 hover:bg-red-700 shadow-red-200"
+              }`}
+            >
+              {isProcessing ? "PDF प्रोसेस हो रही है..." : "📁 PDF फ़ाइल चुनें"}
+            </label>
+
+            <div className="text-[11px] text-slate-400 space-y-1">
+              <p>✓ 100% सुरक्षित (फ़ाइल आपके कंप्यूटर/मोबाइल में ही प्रोसेस होगी)</p>
+              <p>✓ साइबर कैफे और स्टूडियो प्रिंटिंग हेतु 300 DPI सपोर्ट</p>
+            </div>
+          </div>
+        </main>
+      )}
+
+      {/* स्टेप 2: डुअल-बॉक्स वर्कस्पेस */}
+      {step === "workspace" && (
+        <main className="flex-1 max-w-7xl w-full mx-auto p-2 sm:p-4 grid grid-cols-1 lg:grid-cols-12 gap-4 pb-28 lg:pb-6">
+          {/* बायाँ बॉक्स: प्रीव्यू एरिया */}
+          <div className="lg:col-span-8 flex flex-col bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden min-h-[460px]">
+            <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-black text-slate-800 truncate max-w-[180px] sm:max-w-xs">
+                  {fileName}
+                </span>
+                <span className="text-[10px] bg-slate-200 text-slate-700 px-2 py-0.5 rounded font-bold">
+                  {pages.length} पेजेस
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setStep("upload")}
+                className="text-xs text-red-600 hover:text-red-700 font-bold cursor-pointer"
+              >
+                दूसरी PDF चुनें
+              </button>
+            </div>
+
+            <div className="flex-1 flex items-center justify-center p-4 bg-slate-900/5 relative overflow-auto">
+              {activePage ? (
+                <div className="relative max-h-[55vh] flex items-center justify-center">
+                  <img
+                    src={activePage.dataUrl}
+                    alt={`Page ${activePage.pageNumber}`}
+                    className="max-h-[55vh] w-auto object-contain rounded-lg shadow-md border border-white"
+                  />
+                  <div className="absolute top-2 right-2 flex gap-1.5 bg-black/60 backdrop-blur-sm p-1.5 rounded-xl">
+                    <button
+                      type="button"
+                      onClick={() => handleRotatePage(activePageIndex)}
+                      title="घुमाएँ (Rotate 90°)"
+                      className="p-1.5 bg-white/20 hover:bg-white/40 text-white rounded-lg text-xs"
+                    >
+                      🔄
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSharePage(activePage)}
+                      title="WhatsApp शेयर"
+                      className="p-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs"
+                    >
+                      📤
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => downloadSinglePage(activePage)}
+                      title="यह पेज डाउनलोड करें"
+                      className="p-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs"
+                    >
+                      ⬇️
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
+            {/* थंबनेल्स ग्रिड स्ट्रिप */}
+            <div className="p-3 bg-slate-50 border-t border-slate-200 overflow-x-auto flex gap-3 no-scrollbar">
+              {pages.map((item, idx) => (
+                <div
+                  key={idx}
+                  onClick={() => setActivePageIndex(idx)}
+                  className={`flex-shrink-0 cursor-pointer rounded-xl border-2 p-1 relative transition bg-white ${
+                    activePageIndex === idx
+                      ? "border-red-600 ring-2 ring-red-100"
+                      : "border-slate-200 opacity-70 hover:opacity-100"
+                  }`}
+                >
+                  <img
+                    src={item.dataUrl}
+                    alt={`Page ${item.pageNumber}`}
+                    className="w-16 h-20 object-cover rounded"
+                  />
+                  <div
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleSelectPage(idx);
+                    }}
+                    className={`absolute top-1.5 left-1.5 w-4 h-4 rounded flex items-center justify-center text-[10px] font-black ${
+                      item.selected
+                        ? "bg-red-600 text-white"
+                        : "bg-white/90 border border-slate-400 text-transparent"
+                    }`}
+                  >
+                    ✓
+                  </div>
+                  <span className="block text-center text-[10px] font-bold text-slate-600 mt-1">
+                    पेज {item.pageNumber}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* दायाँ बॉक्स: टूल्स व सेटिंग्स (डेस्कटॉप साइडबार) */}
+          <div className="lg:col-span-4 bg-white rounded-2xl border border-slate-200 shadow-sm p-4 flex flex-col justify-between hidden lg:flex">
+            <div className="space-y-5">
+              <h2 className="text-sm font-black text-slate-900 uppercase tracking-wider pb-2 border-b border-slate-100">
+                ⚙️ टूल्स व विकल्प
+              </h2>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700">इमेज प्रारूप (Format)</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setFormat("image/jpeg")}
+                    className={`py-2 text-xs font-black rounded-xl border transition ${
+                      format === "image/jpeg"
+                        ? "bg-red-50 border-red-500 text-red-700 shadow-sm"
+                        : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                    }`}
+                  >
+                    JPG (छोटा साइज़)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFormat("image/png")}
+                    className={`py-2 text-xs font-black rounded-xl border transition ${
+                      format === "image/png"
+                        ? "bg-red-50 border-red-500 text-red-700 shadow-sm"
+                        : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                    }`}
+                  >
+                    PNG (क्लियरिटी)
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700">क्वालिटी (DPI)</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setScaleDpi(2.0);
+                      if (pdfDataRef.current) renderAllPdfPages(pdfDataRef.current, 2.0);
+                    }}
+                    className={`py-2 text-xs font-black rounded-xl border transition ${
+                      scaleDpi === 2.0
+                        ? "bg-slate-900 border-slate-900 text-white"
+                        : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                    }`}
+                  >
+                    नॉर्मल (150 DPI)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setScaleDpi(3.0);
+                      if (pdfDataRef.current) renderAllPdfPages(pdfDataRef.current, 3.0);
+                    }}
+                    className={`py-2 text-xs font-black rounded-xl border transition ${
+                      scaleDpi === 3.0
+                        ? "bg-slate-900 border-slate-900 text-white"
+                        : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                    }`}
+                  >
+                    अल्ट्रा HD (300 DPI)
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 text-xs text-slate-600 space-y-1">
+                <div className="flex justify-between font-medium">
+                  <span>चुने गए पृष्ठ:</span>
+                  <span className="font-bold text-red-600">
+                    {pages.filter((p) => p.selected).length} / {pages.length}
+                  </span>
+                </div>
+                <div className="flex justify-between font-medium">
+                  <span>सक्रिय पृष्ठ:</span>
+                  <span className="font-bold text-slate-800">पेज {activePageIndex + 1}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-2 pt-4 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={handleDownloadAll}
+                className="w-full py-3 bg-red-600 hover:bg-red-700 text-white font-black text-xs rounded-xl shadow-lg shadow-red-100 transition active:scale-98 flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <span>💾</span>
+                <span>चुने हुए सभी पेज डाउनलोड करें</span>
+              </button>
+
+              {activePage && (
+                <button
+                  type="button"
+                  onClick={() => handleSharePage(activePage)}
+                  className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-xl shadow-md transition active:scale-98 flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <span>📤</span>
+                  <span>यह पेज WhatsApp पर भेजें</span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* मोबाइल स्लाइडिंग बॉटम बार (Mobile Horizontal Toolbar) */}
+          <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-slate-200 p-2.5 shadow-2xl z-40">
+            <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1">
+              <button
+                type="button"
+                onClick={() => setFormat(format === "image/jpeg" ? "image/png" : "image/jpeg")}
+                className="flex-shrink-0 px-3 py-2 bg-slate-100 border border-slate-300 rounded-xl text-[11px] font-black text-slate-700"
+              >
+                {format === "image/jpeg" ? "JPG" : "PNG"}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleRotatePage(activePageIndex)}
+                className="flex-shrink-0 px-3 py-2 bg-slate-100 border border-slate-300 rounded-xl text-[11px] font-black text-slate-700 flex items-center gap-1"
+              >
+                <span>🔄</span> घुमाएँ
+              </button>
+
+              {activePage && (
+                <button
+                  type="button"
+                  onClick={() => handleSharePage(activePage)}
+                  className="flex-shrink-0 px-3 py-2 bg-emerald-600 text-white rounded-xl text-[11px] font-black flex items-center gap-1 shadow-sm"
+                >
+                  <span>📤</span> शेयर
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={handleDownloadAll}
+                className="flex-1 min-w-[155px] px-4 py-2 bg-red-600 text-white rounded-xl text-[11px] font-black flex items-center justify-center gap-1 shadow-md shadow-red-200"
+              >
+                <span>⬇️</span> डाउनलोड ({pages.filter((p) => p.selected).length})
+              </button>
+            </div>
+          </div>
+        </main>
+      )}
+    </div>
+  );
+}

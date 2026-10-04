@@ -1,308 +1,370 @@
-'use client';
+"use client";
 
-import React, { useState, useRef } from 'react';
-import { PDFDocument } from 'pdf-lib';
-import FaqSection from '@/components/FaqSection';
+import { useState, ChangeEvent } from "react";
+import { PDFDocument } from "pdf-lib";
+
+type CompressionMode = "recommended" | "high" | "small" | "target";
 
 export default function PdfCompressorPage() {
   const [file, setFile] = useState<File | null>(null);
-  const [originalSizeKb, setOriginalSizeKb] = useState<number>(0);
-  const [targetKb, setTargetKb] = useState<number>(180);
+  const [mode, setMode] = useState<CompressionMode>("recommended");
+  const [targetKb, setTargetKb] = useState<number>(300);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
-  const [progressText, setProgressText] = useState<string>('');
+  const [progressText, setProgressText] = useState<string>("");
   const [compressedPdfUrl, setCompressedPdfUrl] = useState<string | null>(null);
-  const [compressedSizeKb, setCompressedSizeKb] = useState<number>(0);
+  const [compressedSizeKb, setCompressedSizeKb] = useState<number | null>(null);
+  const [originalSizeKb, setOriginalSizeKb] = useState<number | null>(null);
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const pdfFaqs = [
-    {
-      q: "क्या सरकारी पोर्टल (BPSC, SSC, UPSSSC) के लिए यह PDF मान्य होगी?",
-      a: "हाँ, यह टूल विशेष रूप से भारतीय सरकारी भर्ती पोर्टलों के 100KB-200KB नियमों के अनुसार फाइल तैयार करता है। इसमें टेक्स्ट व रोल नंबर साफ रहते हैं ताकि फॉर्म रिजेक्ट न हो।"
-    },
-    {
-      q: "क्या मार्कशीट या सर्टिफिकेट के अक्षर धुंधले होंगे?",
-      a: "नहीं, इसका एल्गोरिदम टेक्स्ट की शार्पनेस और किनारों को सुरक्षित रखता है और केवल बैकग्राउंड की गैर-ज़रूरी परछाई व भारी मेटाडेटा को कंप्रेस करता है।"
-    },
-    {
-      q: "क्या मल्टी-पेज (कई पन्नों वाली) PDF को कंप्रेस कर सकते हैं?",
-      a: "हाँ, चाहे 1 पन्ने की मार्कशीट हो या 10 पन्नों की संयुक्त फाइल, टूल सभी पन्नों को एक साथ तय KB सीमा के अंदर कंप्रेस करता है।"
-    },
-    {
-      q: "क्या मेरे संवेदनशील दस्तावेज सुरक्षित हैं?",
-      a: "यह टूल 100% क्लाइंट-साइड (आपके ब्राउज़र में) काम करता है। कोई भी मार्कशीट, आधार या सर्टिफिकेट किसी सर्वर पर अपलोड नहीं होता।"
-    }
-  ];
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     const selected = e.target.files?.[0];
     if (!selected) return;
-
-    if (selected.type !== 'application/pdf' && !selected.name.endsWith('.pdf')) {
-      alert('कृपया केवल वैध PDF फ़ाइल चुनें।');
+    if (selected.type !== "application/pdf" && !selected.name.toLowerCase().endsWith(".pdf")) {
+      alert("कृपया केवल मान्य PDF फ़ाइल चुनें।");
       return;
     }
-
     setFile(selected);
-    const kb = Math.round(selected.size / 1024);
-    setOriginalSizeKb(kb);
+    const origKb = Math.round(selected.size / 1024);
+    setOriginalSizeKb(origKb);
     setCompressedPdfUrl(null);
-    setCompressedSizeKb(0);
+    setCompressedSizeKb(null);
 
-    // अगर मूल फ़ाइल 200KB से कम है तो उसके अनुसार टारगेट सेट करें
-    if (kb < 200) {
-      setTargetKb(Math.max(50, Math.round(kb * 0.75)));
+    // ऑटो सजेस्ट डिफ़ॉल्ट टारगेट KB अगर ओरिजिनल बहुत बड़ा है
+    if (origKb > 600) {
+      setTargetKb(Math.round(origKb * 0.4));
     } else {
-      setTargetKb(180);
+      setTargetKb(Math.max(100, Math.round(origKb * 0.6)));
     }
   };
 
   const processPdfCompression = async () => {
     if (!file) return;
-
     setIsProcessing(true);
-    setProgressText('PDF पन्नों का विश्लेषण हो रहा है...');
+    setProgressText("PDF इंजन तैयार हो रहा है...");
 
     try {
+      const pdfjs = await import("pdfjs-dist");
+      // @ts-ignore
+      pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
+
       const arrayBuffer = await file.arrayBuffer();
-      const pdfDoc = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
-      const pageCount = pdfDoc.getPageCount();
+      const loadingTask = pdfjs.getDocument({ data: arrayBuffer });
+      const pdf = await loadingTask.promise;
+      const numPages = pdf.numPages;
 
-      setProgressText(`कुल ${pageCount} पन्ने प्रोसेस हो रहे हैं...`);
+      const outPdfDoc = await PDFDocument.create();
 
-      // 1 पन्ने का टारगेट बजट (KB)
-      const perPageBudgetKb = targetKb / pageCount;
+      // मोड के अनुसार बेस स्केल और क्वालिटी का निर्धारण
+      let baseScale = 2.0833; // 150 DPI मानक
+      let baseQuality = 0.80; // iLovePDF मानक
 
-      // क्वालिटी और स्केल फ़ैक्टर तय करना
-      let scale = 1.0;
-      let quality = 0.75;
-
-      if (perPageBudgetKb < 80) {
-        scale = 0.75;
-        quality = 0.55;
-      } else if (perPageBudgetKb < 150) {
-        scale = 0.85;
-        quality = 0.68;
-      } else {
-        scale = 0.95;
-        quality = 0.80;
+      if (mode === "high") {
+        baseScale = 2.5; // ~180-200 DPI
+        baseQuality = 0.88;
+      } else if (mode === "small") {
+        baseScale = 1.6; // ~120 DPI
+        baseQuality = 0.65;
       }
 
-      // नया कंप्रेस्ड PDF दस्तावेज़
-      const newPdfDoc = await PDFDocument.create();
+      // टारगेट साइज का पर-पेज बजट
+      const overheadBytes = 1024 * (numPages + 2);
+      const maxTotalBytes = targetKb * 1024;
+      const perPageMaxBytes = Math.floor(Math.max(20 * 1024, (maxTotalBytes - overheadBytes) / numPages));
 
-      // क्लाइंट-साइड कैनवस रेंडरिंग (pdfjs लाइब्रेरी लोड किए बिना pdf-lib रीकम्प्रेशन)
-      // पन्नों के स्ट्रक्चर और ऑब्जेक्ट्स को कंप्रेस व क्लीन करना
-      const pages = pdfDoc.getPages();
-      for (let i = 0; i < pages.length; i++) {
-        setProgressText(`पन्ना ${i + 1} / ${pageCount} ऑप्टिमाइज़ हो रहा है...`);
-        const [copiedPage] = await newPdfDoc.copyPages(pdfDoc, [i]);
-        newPdfDoc.addPage(copiedPage);
+      for (let pageNum = 1; pageNum <= numPages; pageNum++) {
+        setProgressText(`पेज ${pageNum} / ${numPages} को ऑप्टिमाइज़ किया जा रहा है...`);
+        const page = await pdf.getPage(pageNum);
+        const originalViewport = page.getViewport({ scale: 1.0 });
+
+        let currentScale = baseScale;
+        if (mode === "target") {
+          currentScale = perPageMaxBytes < 45 * 1024 ? 1.4 : perPageMaxBytes < 90 * 1024 ? 1.8 : 2.0833;
+        }
+
+        const viewport = page.getViewport({ scale: currentScale });
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(viewport.width);
+        canvas.height = Math.round(viewport.height);
+        const ctx = canvas.getContext("2d", { alpha: false });
+
+        if (!ctx) continue;
+
+        // प्योर व्हाइट बैकग्राउंड
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // क्रिस्प टेक्स्ट रेंडरिंग
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = "high";
+
+        // @ts-ignore
+        await page.render({
+          canvasContext: ctx,
+          viewport: viewport,
+          intent: "print"
+        }).promise;
+
+        let bestBlob: Blob | null = null;
+
+        if (mode === "target") {
+          // सटीक बाइनरी सर्च
+          let qLow = 0.25;
+          let qHigh = 0.85;
+
+          for (let iter = 0; iter < 4; iter++) {
+            const qMid = (qLow + qHigh) / 2;
+            const b: Blob = await new Promise((res) => {
+              canvas.toBlob((bl) => res(bl!), "image/jpeg", qMid);
+            });
+            if (b.size <= perPageMaxBytes) {
+              bestBlob = b;
+              qLow = qMid;
+            } else {
+              qHigh = qMid;
+            }
+          }
+
+          if (!bestBlob) {
+            bestBlob = await new Promise((res) => {
+              canvas.toBlob((bl) => res(bl!), "image/jpeg", 0.40);
+            });
+          }
+        } else {
+          // प्रीसेट मोड्स (High, Recommended, Small)
+          bestBlob = await new Promise((res) => {
+            canvas.toBlob((b) => res(b!), "image/jpeg", baseQuality);
+          });
+        }
+
+        const imgBytes = await bestBlob!.arrayBuffer();
+        const embeddedImg = await outPdfDoc.embedJpg(imgBytes);
+
+        const outPage = outPdfDoc.addPage([originalViewport.width, originalViewport.height]);
+        outPage.drawImage(embeddedImg, {
+          x: 0,
+          y: 0,
+          width: originalViewport.width,
+          height: originalViewport.height,
+        });
       }
 
-      // मेटाडेटा साफ़ करना
-      newPdfDoc.setTitle('');
-      newPdfDoc.setAuthor('');
-      newPdfDoc.setProducer('ExamSewa Govt Tools');
-      newPdfDoc.setCreator('ExamSewa Govt Tools');
+      setProgressText("दस्तावेज़ सुरक्षित किया जा रहा है...");
+      const finalPdfBytes = await outPdfDoc.save({ useObjectStreams: true });
+      let outputBlob = new Blob([finalPdfBytes], { type: "application/pdf" });
 
-      // बाइट्स सेव करें
-      let pdfBytes = await newPdfDoc.save({ useObjectStreams: true });
-      let currentKb = Math.round(pdfBytes.byteLength / 1024);
-
-      // अगर फ़ाइल अभी भी टारगेट से बड़ी है तो एक्स्ट्रा कम्प्रेशन
-      if (currentKb > targetKb && currentKb > 100) {
-        setProgressText('टारगेट साइज़ में सटीक फिट किया जा रहा है...');
-        // फास्ट बाइट ट्रिमिंग व स्ट्रीम ऑप्टिमाइज़ेशन
-        pdfBytes = await newPdfDoc.save({ useObjectStreams: true, addDefaultPage: false });
-        currentKb = Math.round(pdfBytes.byteLength / 1024);
+      // नो-इन्फ्लेशन सुरक्षा
+      if (outputBlob.size >= file.size) {
+        outputBlob = file;
       }
 
-      const blob = new Blob([pdfBytes], { type: 'application/pdf' });
-      const url = URL.createObjectURL(blob);
+      const calculatedKb = Math.round(outputBlob.size / 1024);
+      setCompressedSizeKb(calculatedKb);
 
-      setCompressedPdfUrl(url);
-      setCompressedSizeKb(Math.min(currentKb, Math.round(originalSizeKb * 0.4) > targetKb ? targetKb : currentKb));
-      setProgressText('');
+      if (compressedPdfUrl) URL.revokeObjectURL(compressedPdfUrl);
+      setCompressedPdfUrl(URL.createObjectURL(outputBlob));
     } catch (err) {
       console.error(err);
-      alert('PDF प्रोसेस करने में समस्या आई। कृपया फ़ाइल जांचें।');
+      alert("PDF कंप्रेस करने में समस्या आई। कृपया फ़ाइल पुनः जाँचें।");
     } finally {
       setIsProcessing(false);
+      setProgressText("");
     }
   };
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-8">
-      <div className="bg-white p-6 sm:p-8 rounded-2xl border border-slate-200 shadow-sm">
-        
-        <div className="inline-block px-3 py-1 bg-rose-100 text-rose-900 text-xs font-bold rounded-full mb-3">
-          🎯 100KB - 200KB लॉक • सरकारी पोर्टल स्पेशल
+    <div className="min-h-screen bg-slate-50/50 text-slate-800 py-8 px-4 sm:px-6">
+      <div className="max-w-xl mx-auto space-y-6">
+
+        {/* Header */}
+        <div className="text-center space-y-2">
+          <span className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 text-xs px-3 py-1 rounded-full font-bold border border-blue-100">
+            <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></span>
+            क्रिस्प टेक्स्ट • स्मार्ट कम्प्रेशन
+          </span>
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
+            PDF कंप्रेसर
+          </h1>
+          <p className="text-xs sm:text-sm text-slate-500 font-medium">
+            मार्कशीट, सर्टिफिकेट और फॉर्म की स्पष्टता बनाए रखते हुए सुरक्षित कंप्रेस करें
+          </p>
         </div>
-        <h1 className="text-2xl sm:text-3xl font-black text-slate-900 mb-2">
-          सरकारी पोर्टल PDF कंप्रेसर (Target PDF Compressor)
-        </h1>
-        <p className="text-sm text-slate-600 mb-6">
-          मार्कशीट, जाति व निवास प्रमाण पत्र की भारी PDF को बिना अक्षर धुंधले किए 100KB, 200KB या तय सरकारी लिमिट में कंप्रेस करें।
-        </p>
 
-        {/* फ़ाइल चयन बॉक्स */}
-        <div className="border-2 border-dashed border-rose-300 rounded-2xl p-6 text-center bg-rose-50/30 mb-6">
-          <input
-            type="file"
-            accept="application/pdf"
-            ref={fileInputRef}
-            onChange={handleFileChange}
-            className="hidden"
-          />
+        {/* Main Card */}
+        <div className="bg-white rounded-3xl p-5 sm:p-7 border border-slate-200/80 shadow-sm space-y-6">
 
-          {!file ? (
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="px-6 py-3.5 bg-rose-600 hover:bg-rose-700 text-white text-sm font-bold rounded-xl shadow-xs transition flex items-center justify-center gap-2 mx-auto cursor-pointer"
-            >
-              <span>📄</span>
-              <span>कंप्रेस करने हेतु PDF फ़ाइल चुनें</span>
-            </button>
-          ) : (
-            <div className="space-y-2">
-              <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-white border border-rose-200 rounded-xl shadow-2xs">
-                <span className="text-rose-600 font-bold">📑 {file.name}</span>
-                <span className="text-xs bg-rose-100 text-rose-800 font-bold px-2 py-0.5 rounded-full">
-                  {originalSizeKb > 1024 ? `${(originalSizeKb / 1024).toFixed(2)} MB` : `${originalSizeKb} KB`}
-                </span>
+          {/* Upload Box */}
+          <div className="space-y-2">
+            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+              PDF फ़ाइल चुनें
+            </label>
+
+            <label className="relative flex flex-col items-center justify-center border-2 border-dashed border-slate-300 hover:border-blue-400 rounded-2xl p-6 text-center cursor-pointer bg-slate-50/50 hover:bg-blue-50/30 transition-all group">
+              <input
+                type="file"
+                accept="application/pdf"
+                onChange={handleFileChange}
+                className="sr-only"
+              />
+
+              <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center text-2xl mb-2 group-hover:scale-110 transition-transform">
+                📄
               </div>
-              <div>
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="text-xs text-rose-700 font-bold underline cursor-pointer"
-                >
-                  दूसरी फ़ाइल चुनें
-                </button>
+
+              {file ? (
+                <div>
+                  <p className="text-sm font-bold text-slate-800 max-w-[280px] truncate">{file.name}</p>
+                  <p className="text-xs font-semibold text-blue-600 mt-0.5">
+                    मूल आकार: {originalSizeKb} KB
+                  </p>
+                </div>
+              ) : (
+                <div>
+                  <p className="text-sm font-bold text-slate-700">यहाँ फ़ाइल चुनें या ड्रैग करें</p>
+                  <p className="text-[11px] text-slate-400 mt-1">सभी PDF दस्तावेज़ समर्थित हैं</p>
+                </div>
+              )}
+            </label>
+          </div>
+
+          {file && (
+            <div className="space-y-5 animate-in fade-in duration-200">
+              {/* 3 Compression Modes */}
+              <div className="space-y-2">
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                  कंप्रेशन लेवल चुनें
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setMode("high")}
+                    className={`p-3 rounded-2xl border text-center transition ${
+                      mode === "high"
+                        ? "border-blue-600 bg-blue-50/50 text-blue-900 shadow-sm"
+                        : "border-slate-200 hover:border-slate-300 text-slate-700"
+                    }`}
+                  >
+                    <div className="text-base mb-1">🟢</div>
+                    <div className="text-xs font-bold">High Quality</div>
+                    <div className="text-[10px] text-slate-400 mt-0.5">कम कम्प्रेशन, हाई स्पष्टता</div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setMode("recommended")}
+                    className={`p-3 rounded-2xl border text-center transition ${
+                      mode === "recommended"
+                        ? "border-blue-600 bg-blue-50/50 text-blue-900 shadow-sm"
+                        : "border-slate-200 hover:border-slate-300 text-slate-700"
+                    }`}
+                  >
+                    <div className="text-base mb-1">🟡</div>
+                    <div className="text-xs font-bold">Recommended</div>
+                    <div className="text-[10px] text-slate-400 mt-0.5">संतुलित साइज़ और क्वालिटी</div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setMode("small")}
+                    className={`p-3 rounded-2xl border text-center transition ${
+                      mode === "small"
+                        ? "border-blue-600 bg-blue-50/50 text-blue-900 shadow-sm"
+                        : "border-slate-200 hover:border-slate-300 text-slate-700"
+                    }`}
+                  >
+                    <div className="text-base mb-1">🔴</div>
+                    <div className="text-xs font-bold">Small Size</div>
+                    <div className="text-[10px] text-slate-400 mt-0.5">अधिकतम कम्प्रेशन</div>
+                  </button>
+                </div>
+
+                <div className="pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setMode("target")}
+                    className={`w-full py-2 px-3 text-xs font-bold rounded-xl border transition ${
+                      mode === "target"
+                        ? "border-blue-600 bg-blue-50 text-blue-700"
+                        : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                    }`}
+                  >
+                    🎯 सटीक Target Size (KB) लॉक करें
+                  </button>
+                </div>
               </div>
+
+              {/* Target Size Controls */}
+              {mode === "target" && (
+                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="font-bold text-slate-700">वांछित फ़ाइल साइज़:</span>
+                    <span className="font-black text-blue-600 bg-white px-2 py-0.5 rounded-lg border border-slate-200">
+                      {targetKb} KB
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-4 gap-2">
+                    {[150, 200, 300, 500].map((kb) => (
+                      <button
+                        key={kb}
+                        type="button"
+                        onClick={() => setTargetKb(kb)}
+                        className={`py-1.5 text-xs font-bold rounded-lg border ${
+                          targetKb === kb
+                            ? "bg-blue-600 text-white border-blue-600"
+                            : "bg-white text-slate-700 border-slate-200 hover:border-slate-300"
+                        }`}
+                      >
+                        {kb} KB
+                      </button>
+                    ))}
+                  </div>
+
+                  <input
+                    type="range"
+                    min={50}
+                    max={Math.min(1000, originalSizeKb ? originalSizeKb - 10 : 800)}
+                    value={targetKb}
+                    onChange={(e) => setTargetKb(Number(e.target.value))}
+                    className="w-full accent-blue-600 cursor-pointer"
+                  />
+                </div>
+              )}
+
+              {/* Compress Action Button */}
+              <button
+                type="button"
+                onClick={processPdfCompression}
+                disabled={isProcessing}
+                className="w-full py-3.5 px-6 rounded-2xl bg-blue-600 hover:bg-blue-700 active:scale-[0.99] text-white font-bold text-sm shadow-md shadow-blue-200 transition disabled:opacity-50"
+              >
+                {isProcessing ? progressText || "प्रोसेसिंग..." : "PDF कंप्रेस करें"}
+              </button>
+
+              {/* Download Box */}
+              {compressedPdfUrl && compressedSizeKb && (
+                <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl space-y-3">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-emerald-800 font-bold">✓ सफलतापूर्वक कंप्रेस हुआ!</span>
+                    <span className="bg-emerald-600 text-white font-black px-2 py-0.5 rounded-md">
+                      {compressedSizeKb} KB
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-emerald-700">
+                    फ़ाइल साइज़: {originalSizeKb} KB ➔ <span className="font-bold">{compressedSizeKb} KB</span> (
+                    {originalSizeKb ? Math.round(((originalSizeKb - compressedSizeKb) / originalSizeKb) * 100) : 0}% की बचत)
+                  </div>
+                  <a
+                    href={compressedPdfUrl}
+                    download={`compressed_${file.name}`}
+                    className="block w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white text-center font-bold text-xs rounded-xl shadow-sm transition"
+                  >
+                    ⬇️ कंप्रेस की गई PDF डाउनलोड करें
+                  </a>
+                </div>
+              )}
             </div>
           )}
         </div>
-
-        {/* टारगेट KB प्रीसेट्स और स्लाइडर */}
-        {file && (
-          <div className="p-5 bg-slate-50 border border-slate-200 rounded-2xl mb-6 space-y-4">
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-2">
-                🎯 सरकारी पोर्टल का टारगेट साइज़ चुनें:
-              </label>
-
-              {/* 4 क्विक प्रीसेट बटन्स */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
-                {[
-                  { label: '100 KB', val: 95, tag: 'स्टेट फॉर्म' },
-                  { label: '200 KB', val: 185, tag: 'BPSC/SSC' },
-                  { label: '300 KB', val: 285, tag: 'मार्कशीट' },
-                  { label: '500 KB', val: 480, tag: 'विस्तृत' },
-                ].map((item) => (
-                  <button
-                    key={item.label}
-                    type="button"
-                    onClick={() => setTargetKb(item.val)}
-                    className={`p-2.5 rounded-xl border text-center transition cursor-pointer ${
-                      Math.abs(targetKb - item.val) < 20
-                        ? 'bg-rose-600 text-white border-rose-600 shadow-xs'
-                        : 'bg-white text-slate-800 border-slate-300 hover:border-rose-400'
-                    }`}
-                  >
-                    <div className="text-xs font-black">{item.label}</div>
-                    <div className={`text-[10px] ${Math.abs(targetKb - item.val) < 20 ? 'text-rose-100' : 'text-slate-400'}`}>
-                      {item.tag}
-                    </div>
-                  </button>
-                ))}
-              </div>
-
-              {/* मैनुअल स्लाइडर */}
-              <div className="pt-2 border-t border-slate-200">
-                <div className="flex justify-between text-xs font-bold text-slate-700 mb-1">
-                  <span>कस्टम टारगेट साइज़:</span>
-                  <span className="text-rose-600 font-mono font-black">{targetKb} KB</span>
-                </div>
-                <input
-                  type="range"
-                  min={50}
-                  max={800}
-                  step={10}
-                  value={targetKb}
-                  onChange={(e) => setTargetKb(parseInt(e.target.value))}
-                  className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-rose-600"
-                />
-                <div className="flex justify-between text-[10px] text-slate-400 mt-1">
-                  <span>50 KB</span>
-                  <span>400 KB</span>
-                  <span>800 KB</span>
-                </div>
-              </div>
-            </div>
-
-            {/* कंप्रेस बटन */}
-            <button
-              type="button"
-              onClick={processPdfCompression}
-              disabled={isProcessing}
-              className="w-full py-3.5 bg-rose-600 hover:bg-rose-700 text-white font-black text-sm rounded-xl shadow-xs transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-            >
-              <span>🗜️</span>
-              <span>{isProcessing ? progressText : `PDF कंप्रेस करें (${targetKb} KB लक्ष्य)`}</span>
-            </button>
-          </div>
-        )}
-
-        {/* परिणाम और डाउनलोड बॉक्स */}
-        {compressedPdfUrl && (
-          <div className="p-5 bg-emerald-50 border-2 border-emerald-300 rounded-2xl mb-6 space-y-4">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-black text-emerald-900 uppercase tracking-wider">
-                ✅ PDF सफलतापूर्वक कंप्रेस हो गई!
-              </span>
-              <span className="text-xs bg-emerald-200 text-emerald-800 font-black px-2.5 py-0.5 rounded-full">
-                पोर्टल रेडी
-              </span>
-            </div>
-
-            {/* बिफोर और आफ्टर साइज़ तुलना */}
-            <div className="grid grid-cols-2 gap-3 bg-white p-3.5 rounded-xl border border-emerald-200 text-center">
-              <div>
-                <div className="text-[11px] text-slate-500 font-bold">पहले का साइज़</div>
-                <div className="text-base font-black text-slate-700 font-mono">
-                  {originalSizeKb > 1024 ? `${(originalSizeKb / 1024).toFixed(2)} MB` : `${originalSizeKb} KB`}
-                </div>
-              </div>
-              <div className="border-l border-slate-200">
-                <div className="text-[11px] text-emerald-600 font-bold">नया कंप्रेस्ड साइज़</div>
-                <div className="text-base font-black text-emerald-700 font-mono">
-                  ≈ {compressedSizeKb} KB
-                </div>
-              </div>
-            </div>
-
-            <a
-              href={compressedPdfUrl}
-              download={`compressed_${targetKb}kb_${file?.name || 'document.pdf'}`}
-              className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-sm rounded-xl shadow-xs transition flex items-center justify-center gap-2 cursor-pointer"
-            >
-              <span>📥</span>
-              <span>कंप्रेस्ड PDF डाउनलोड करें ({compressedSizeKb} KB)</span>
-            </a>
-          </div>
-        )}
-
       </div>
-
-      <FaqSection 
-        title="सरकारी पोर्टल PDF कंप्रेसर - अक्सर पूछे जाने वाले सवाल"
-        items={pdfFaqs}
-        pageUrl="https://examsewa.online/tools/pdf-compressor"
-      />
-
     </div>
   );
 }

@@ -1,4 +1,5 @@
 'use client';
+import { exportSmartJpg } from "@/lib/image-engine";
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import Link from 'next/link';
@@ -277,8 +278,8 @@ export default function PhotoNameDatePage() {
     return canvas;
   }, [getCalculatedDimensions, rotation, zoomLevel, panOffset, brightness, contrast, includeNameDate, fontSize, userName, dateText]);
 
-  // सटीक बाइनरी DPI और सेफ पैडिंग इंजेक्शन
-  const processPhoto = useCallback(() => {
+  // स्मार्ट कोर इंजन (नाम, तारीख और फॉन्ट 100% क्रिस्प व सुरक्षित)
+  const processPhoto = useCallback(async () => {
     if (!cachedImgRef.current) return;
     setIsProcessing(true);
 
@@ -288,37 +289,22 @@ export default function PhotoNameDatePage() {
       return;
     }
 
-    const { currentDpi } = getCalculatedDimensions();
-    const targetBytes = targetKb * 1024;
-    let minQ = 0.02;
-    let maxQ = 0.99;
-    let bestQ = 0.85;
-    let bestData = canvas.toDataURL('image/jpeg', bestQ);
+    try {
+      const res = await exportSmartJpg(canvas, {
+        targetKb: targetKb,
+        isDocument: false,
+        minQuality: 0.15,
+        maxQuality: 0.98,
+      });
 
-    for (let step = 0; step < 9; step++) {
-      const midQ = (minQ + maxQ) / 2;
-      const dUrl = canvas.toDataURL('image/jpeg', midQ);
-      const head = 'data:image/jpeg;base64,';
-      const bytes = Math.round(((dUrl.length - head.length) * 3) / 4);
-
-      if (bytes > targetBytes) {
-        maxQ = midQ;
-      } else {
-        bestQ = midQ;
-        bestData = dUrl;
-        minQ = midQ;
-      }
+      setOutputUrl(res.dataUrl);
+      setOutputKb(res.actualKb);
+    } catch (err) {
+      console.error("Smart Export Error:", err);
+    } finally {
+      setIsProcessing(false);
     }
-
-    // JPEG में सटीक JFIF DPI और सेफ पैडिंग इंजेक्ट करना
-    const finalData = buildAccurateJpeg(bestData, currentDpi, targetBytes);
-    const pure = finalData.replace(/^data:image\/jpeg;base64,/, '');
-    const actualKb = Math.round((pure.length * 3) / 4 / 1024);
-
-    setOutputUrl(finalData);
-    setOutputKb(actualKb);
-    setIsProcessing(false);
-  }, [targetKb, renderCanvas, getCalculatedDimensions]);
+  }, [targetKb, renderCanvas]);
 
   useEffect(() => {
     if (imageSrc) {
@@ -923,10 +909,14 @@ export default function PhotoNameDatePage() {
           className="hidden"
         />
 
-        {/* --- 1. मोबाइल लेआउट --- */}
+        {/* --- 1. मोबाइल लेआउट (ऊपर स्थिर प्रीव्यू + नीचे स्क्रॉलेबल एडजस्टमेंट टूलबॉक्स) --- */}
         <div className="block lg:hidden space-y-3">
-          {CanvasSection}
-          {ControlsSidebar}
+          <div className="sticky top-2 z-30 shadow-md rounded-2xl bg-white/95 backdrop-blur-sm border border-slate-200/80 p-1">
+            {CanvasSection}
+          </div>
+          <div className="pt-1">
+            {ControlsSidebar}
+          </div>
         </div>
 
         {/* --- 2. कंप्यूटर लेआउट (2/3 + 1/3) --- */}
@@ -938,7 +928,156 @@ export default function PhotoNameDatePage() {
             {ControlsSidebar}
           </div>
         </div>
-      </div>
+      
+      {/* ================= SEO & KNOWLEDGE SECTION (FULL WIDTH) ================= */}
+      <article className="col-span-full w-full max-w-6xl mx-auto mt-14 mb-20 px-4 sm:px-6 lg:px-8 text-slate-800 space-y-12 border-t border-slate-200 pt-10">
+        
+        {/* 1. मुख्य हेडिंग और कीवर्ड रिच परिचय */}
+        <header className="space-y-3">
+          <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight leading-tight">
+            फोटो पर नाम और तारीख जोड़ें (Photo with Name and Date Maker Online for SSC, RRB & Govt Exams)
+          </h2>
+          <p className="text-sm sm:text-base leading-relaxed text-slate-600">
+            सरकारी परीक्षाओं जैसे <strong>SSC (CGL, CHSL, GD, MTS)</strong>, <strong>Railway (RRB ALP, Technician, Group D)</strong>, पुलिस भर्ती और राज्य लोक सेवा आयोग के फॉर्म भरते समय पासपोर्ट साइज फोटो पर उम्मीदवार का नाम और फोटो खींचने की तारीख (Date of Photo - DOP) लिखना अनिवार्य होता है। <strong>ExamSewa Photo Name & Date Generator</strong> बिना किसी जटिल सॉफ्टवेयर के कुछ ही सेकंड में फोटो पर सफेद पट्टी के साथ स्पष्ट नाम व तारीख जोड़कर 20 KB से 50 KB में तैयार करता है।
+          </p>
+        </header>
+
+        {/* 2. प्रमुख सरकारी परीक्षाओं के फोटो व DOP नियम (Table) */}
+        <section className="space-y-4">
+          <div className="flex items-center gap-2">
+            <span className="text-xl">📋</span>
+            <h3 className="text-lg sm:text-xl font-bold text-slate-900">
+              विभिन्न सरकारी परीक्षाओं के लिए फोटो पर नाम व तारीख के आधिकारिक नियम
+            </h3>
+          </div>
+          <p className="text-xs sm:text-sm text-slate-500">
+            फॉर्म रिजेक्ट होने से बचने के लिए संबंधित भर्ती बोर्ड के अनुसार सही प्रारूप की जांच करें:
+          </p>
+          <div className="overflow-x-auto rounded-xl border border-slate-200 shadow-xs">
+            <table className="w-full text-left text-xs sm:text-sm border-collapse bg-white">
+              <thead>
+                <tr className="bg-slate-100/80 border-b border-slate-200 text-slate-800">
+                  <th className="py-3.5 px-4 font-bold">परीक्षा बोर्ड</th>
+                  <th className="py-3.5 px-4 font-bold">तारीख का प्रकार (DOP / DOB)</th>
+                  <th className="py-3.5 px-4 font-bold">मानक फाइल साइज़</th>
+                  <th className="py-3.5 px-4 font-bold">फोटो का बैकग्राउंड</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-slate-600">
+                <tr className="hover:bg-slate-50/50">
+                  <td className="py-3 px-4 font-semibold text-slate-800">SSC (Staff Selection Commission)</td>
+                  <td className="py-3 px-4 font-medium text-slate-900">Date of Photo (अधिसूचना से 3 महीने पुरानी न हो)</td>
+                  <td className="py-3 px-4 font-bold text-blue-600">20 KB – 50 KB</td>
+                  <td className="py-3 px-4">सफेद या हल्का बैकग्राउंड (Light BG)</td>
+                </tr>
+                <tr className="hover:bg-slate-50/50">
+                  <td className="py-3 px-4 font-semibold text-slate-800">Railway Recruitment Board (RRB)</td>
+                  <td className="py-3 px-4 font-medium text-slate-900">उम्मीदवार का पूरा नाम व DOP</td>
+                  <td className="py-3 px-4 font-bold text-blue-600">30 KB – 70 KB</td>
+                  <td className="py-3 px-4">सादा सफेद बैकग्राउंड</td>
+                </tr>
+                <tr className="hover:bg-slate-50/50">
+                  <td className="py-3 px-4 font-semibold text-slate-800">UP Police / UPSSSC</td>
+                  <td className="py-3 px-4 font-medium text-slate-900">स्पष्ट पासपोर्ट फोटो (मांगे जाने पर DOP)</td>
+                  <td className="py-3 px-4 font-bold text-blue-600">20 KB – 50 KB</td>
+                  <td className="py-3 px-4">हल्का ग्रे या सफेद बैकग्राउंड</td>
+                </tr>
+                <tr className="hover:bg-slate-50/50">
+                  <td className="py-3 px-4 font-semibold text-slate-800">BPSC / State PSCs</td>
+                  <td className="py-3 px-4 font-medium text-slate-900">नाम और फोटो खिंचवाने का दिनांक</td>
+                  <td className="py-3 px-4 font-bold text-blue-600">25 KB – 100 KB</td>
+                  <td className="py-3 px-4">एक समान सादा बैकग्राउंड</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        {/* 3. चरण-दर-चरण मार्गदर्शिका (How-to Guide) */}
+        <section className="space-y-4">
+          <div className="flex items-center gap-2">
+            <span className="text-xl">⚙️</span>
+            <h3 className="text-lg sm:text-xl font-bold text-slate-900">
+              फोटो पर नाम और तारीख कैसे जोड़ें? (How to Add Name and Date)
+            </h3>
+          </div>
+          <ol className="list-decimal list-outside ml-5 space-y-3 text-sm sm:text-base text-slate-600 leading-relaxed">
+            <li>
+              <strong>पासपोर्ट फोटो चुनें:</strong> गैलरी से अपनी पासपोर्ट साइज फोटो अपलोड करें या कैमरे से नई फोटो खींचें।
+            </li>
+            <li>
+              <strong>उम्मीदवार का नाम दर्ज करें:</strong> <em>"उम्मीदवार का नाम"</em> बॉक्स में अपना वही नाम लिखें जो आपके 10वीं के सर्टिफिकेट या आधार कार्ड में दर्ज है।
+            </li>
+            <li>
+              <strong>फोटो खींचने की तारीख (DOP) चुनें:</strong> कैलेंडर से वह तारीख चुनें जिस दिन फोटो ली गई है (ध्यान रहे कि यह नोटिफिकेशन से 3 महीने से ज्यादा पुरानी न हो)।
+            </li>
+            <li>
+              <strong>पट्टी और फॉन्ट समायोजित करें:</strong> नीचे दी गई सफेद पट्टी और टेक्स्ट फॉन्ट साइज को अपनी पसंद के अनुसार एडजस्ट करें।
+            </li>
+            <li>
+              <strong>डाउनलोड करें:</strong> 20 KB से 50 KB के सटीक सरकारी परीक्षा मानक के साथ उच्च गुणवत्ता वाली JPG फोटो डाउनलोड करें।
+            </li>
+          </ol>
+        </section>
+
+        {/* 4. महत्वपूर्ण सावधानियाँ (Exam Dos & Don'ts) */}
+        <section className="space-y-4">
+          <h3 className="text-lg sm:text-xl font-bold text-slate-900 flex items-center gap-2">
+            <span>⚠️</span> फॉर्म रिजेक्ट होने से बचने के लिए जरूरी सावधानियाँ
+          </h3>
+          <ul className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs sm:text-sm text-slate-600">
+            <li className="flex items-start gap-2.5 bg-slate-50/70 p-3.5 rounded-xl border border-slate-100">
+              <span className="text-emerald-600 font-bold">✔</span>
+              <span><strong>दोनों कान और चेहरा साफ दिखें:</strong> सिर सीधा रखें और दोनों कान स्पष्ट दिखने चाहिए।</span>
+            </li>
+            <li className="flex items-start gap-2.5 bg-slate-50/70 p-3.5 rounded-xl border border-slate-100">
+              <span className="text-emerald-600 font-bold">✔</span>
+              <span><strong>टोपी या चश्मा न पहनें:</strong> धूप का चश्मा (Goggles) या मफलर/टोपी लगी फोटो तुरंत रिजेक्ट हो जाती है।</span>
+            </li>
+            <li className="flex items-start gap-2.5 bg-slate-50/70 p-3.5 rounded-xl border border-slate-100">
+              <span className="text-emerald-600 font-bold">✔</span>
+              <span><strong>DOB की जगह DOP का ध्यान रखें:</strong> जब तक विज्ञापन में जन्मतिथि न मांगी जाए, हमेशा फोटो खींचने की तारीख (Date of Photo) ही डालें।</span>
+            </li>
+            <li className="flex items-start gap-2.5 bg-slate-50/70 p-3.5 rounded-xl border border-slate-100">
+              <span className="text-emerald-600 font-bold">✔</span>
+              <span><strong>100% सुरक्षित और निजी:</strong> आपकी फोटो किसी भी सर्वर पर अपलोड नहीं होती, सारा काम आपके फोन या कंप्यूटर पर ही प्रोसेस होता है।</span>
+            </li>
+          </ul>
+        </section>
+
+        {/* 5. अक्सर पूछे जाने वाले सवाल (FAQ Section) */}
+        <section className="space-y-6">
+          <div className="flex items-center gap-2">
+            <span className="text-xl">❓</span>
+            <h3 className="text-lg sm:text-xl font-bold text-slate-900">
+              अक्सर पूछे जाने वाले सवाल (Frequently Asked Questions - FAQs)
+            </h3>
+          </div>
+          <div className="divide-y divide-slate-200 text-sm">
+            <div className="py-4 space-y-1.5">
+              <h4 className="font-bold text-slate-900 text-base">Q1. फोटो पर DOP (Date of Photo) लिखना क्यों जरूरी है?</h4>
+              <p className="text-slate-600 leading-relaxed">
+                SSC और कई राज्य आयोग यह सुनिश्चित करने के लिए DOP मांगते हैं कि फोटो हाल ही की (3 महीने के भीतर खींची गई) है और परीक्षा केंद्र पर आपकी वर्तमान पहचान से मेल खाती है।
+              </p>
+            </div>
+            <div className="py-4 space-y-1.5">
+              <h4 className="font-bold text-slate-900 text-base">Q2. क्या फोटो पर जन्मतिथि (Date of Birth) लिखनी चाहिए?</h4>
+              <p className="text-slate-600 leading-relaxed">
+                सामान्यतः आयोग फोटो खींचने की तारीख (DOP) मांगते हैं, न कि जन्मतिथि। कृपया अपने परीक्षा नोटिफिकेशन को पढ़ें—यदि उसमें स्पष्ट रूप से जन्मतिथि मांगी गई हो तभी DOB डालें, अन्यथा फोटो खिंचवाने का दिनांक ही मान्य होता है।
+              </p>
+            </div>
+            <div className="py-4 space-y-1.5">
+              <h4 className="font-bold text-slate-900 text-base">Q3. क्या नाम और तारीख जोड़ने के बाद फोटो का साइज 20 से 50 KB के बीच रहेगा?</h4>
+              <p className="text-slate-600 leading-relaxed">
+                हाँ। हमारा स्मार्ट इमेज इंजन टेक्स्ट और स्ट्रिप जोड़ने के बाद फोटो को ऑटोमैटिकली 20 KB से 50 KB के आधिकारिक परीक्षा दायरे में अनुकूलित (Optimize) कर देता है।
+              </p>
+            </div>
+          </div>
+        </section>
+
+      </article>
+      {/* ================= SEO & KNOWLEDGE SECTION END ================= */}
+</div>
     </div>
   );
 }
