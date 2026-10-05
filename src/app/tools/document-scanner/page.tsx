@@ -528,10 +528,8 @@ export default function DocumentScannerPage() {
 
     if (type === "rotate-left") {
       ctx.rotate((-90 * Math.PI) / 180);
-      setOrientation((prev) => (prev === "portrait" ? "landscape" : "portrait"));
     } else if (type === "rotate-right") {
       ctx.rotate((90 * Math.PI) / 180);
-      setOrientation((prev) => (prev === "portrait" ? "landscape" : "portrait"));
     } else if (type === "flip-h") {
       ctx.scale(-1, 1);
     } else if (type === "flip-v") {
@@ -542,6 +540,7 @@ export default function DocumentScannerPage() {
     ctx.restore();
 
     baseProcessedCanvasRef.current = outCvs;
+    // शीट का ओरिएंटेशन छेड़े बिना रेंडर करें
     processFilterAndCompression(outCvs, filter, brightness, contrast, targetKb);
   };
 
@@ -552,52 +551,104 @@ export default function DocumentScannerPage() {
     const baseCvs = baseProcessedCanvasRef.current;
     if (!baseCvs) return;
 
-    const rotatedCvs = document.createElement("canvas");
-    rotatedCvs.width = baseCvs.height;
-    rotatedCvs.height = baseCvs.width;
-    const ctx = rotatedCvs.getContext("2d");
-    if (!ctx) return;
-
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, rotatedCvs.width, rotatedCvs.height);
-
-    ctx.translate(rotatedCvs.width / 2, rotatedCvs.height / 2);
-    ctx.rotate((90 * Math.PI) / 180);
-    ctx.drawImage(baseCvs, -baseCvs.width / 2, -baseCvs.height / 2);
-
-    baseProcessedCanvasRef.current = rotatedCvs;
-    processFilterAndCompression(rotatedCvs, filter, brightness, contrast, targetKb);
+    processFilterAndCompression(baseCvs, filter, brightness, contrast, targetKb, newMode);
   };
 
   // 5. सटीक पिक्सेल-लेवल फ़िल्टर व कंप्रेशन
+  
+  // शार्पनेस इंजन: अक्षरों को क्रिस्प और गहरा बनाए रखने के लिए Unsharp Mask कर्नल
+  const applySharpnessFilter = (ctx: CanvasRenderingContext2D, w: number, h: number, amount: number = 0.35) => {
+    try {
+      const srcData = ctx.getImageData(0, 0, w, h);
+      const src = srcData.data;
+      const outData = ctx.createImageData(w, h);
+      const dst = outData.data;
+
+      for (let y = 1; y < h - 1; y++) {
+        for (let x = 1; x < w - 1; x++) {
+          const idx = (y * w + x) * 4;
+          for (let c = 0; c < 3; c++) {
+            const center = src[idx + c];
+            const up = src[((y - 1) * w + x) * 4 + c];
+            const down = src[((y + 1) * w + x) * 4 + c];
+            const left = src[(y * w + (x - 1)) * 4 + c];
+            const right = src[(y * w + (x + 1)) * 4 + c];
+            const edgeVal = (center * 4) - up - down - left - right;
+            dst[idx + c] = Math.min(255, Math.max(0, center + edgeVal * amount));
+          }
+          dst[idx + 3] = src[idx + 3];
+        }
+      }
+      ctx.putImageData(outData, 0, 0);
+    } catch {
+      // Fallback if cross-origin context prevents pixel read
+    }
+  };
+
   const processFilterAndCompression = async (
     baseCanvas: HTMLCanvasElement,
     mode: FilterMode,
     bVal: number,
     cVal: number,
-    desiredKb: number
+    desiredKb: number,
+    targetOrientation: PageOrientation = orientation
   ) => {
-    let scale = 1;
-    if (desiredKb < 80) scale = 0.65;
-    else if (desiredKb < 150) scale = 0.80;
-    else if (desiredKb < 250) scale = 0.90;
+    // 1. A4 शीट का आयाम (Portrait vs Landscape)
+    let a4W = targetOrientation === "portrait" ? 1240 : 1754;
+    let a4H = targetOrientation === "portrait" ? 1754 : 1240;
+
+    // अगर Max HD चुना है (desiredKb === 0) तो ओरिजिनल 300 DPI स्केल (1.75x) लें
+    let scale = 1.0;
+    if (desiredKb === 0) {
+      scale = 1.75; // Max 300 DPI studio resolution
+    } else if (desiredKb <= 25) {
+      scale = 0.45;
+    } else if (desiredKb <= 60) {
+      scale = 0.60;
+    } else if (desiredKb <= 120) {
+      scale = 0.75;
+    } else if (desiredKb <= 250) {
+      scale = 0.90;
+    }
+
+    a4W = Math.round(a4W * scale);
+    a4H = Math.round(a4H * scale);
 
     const finalCanvas = document.createElement("canvas");
-    finalCanvas.width = Math.round(baseCanvas.width * scale);
-    finalCanvas.height = Math.round(baseCanvas.height * scale);
+    finalCanvas.width = a4W;
+    finalCanvas.height = a4H;
     const ctx = finalCanvas.getContext("2d");
-    if (!ctx) return baseCanvas.toDataURL("image/jpeg", 0.7);
+    if (!ctx) return baseCanvas.toDataURL("image/jpeg", 0.9);
 
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = "high";
 
+    // सफ़ेद A4 बैकग्राउंड
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, finalCanvas.width, finalCanvas.height);
-    ctx.drawImage(baseCanvas, 0, 0, finalCanvas.width, finalCanvas.height);
 
+    // स्मार्ट ऑटो-फिट
+    const isSheetPortrait = a4W <= a4H;
+    const isDocPortrait = baseCanvas.width <= baseCanvas.height;
+    let marginPercent = (isSheetPortrait === isDocPortrait) ? 0.012 : 0.04;
+    const marginX = Math.round(a4W * marginPercent);
+    const marginY = Math.round(a4H * marginPercent);
+
+    const availW = a4W - (marginX * 2);
+    const availH = a4H - (marginY * 2);
+    const imgRatio = baseCanvas.width / baseCanvas.height;
+    const pageRatio = availW / availH;
+
+    let drawW = (imgRatio > pageRatio) ? availW : availH * imgRatio;
+    let drawH = (imgRatio > pageRatio) ? availW / imgRatio : availH;
+    const drawX = Math.round((a4W - drawW) / 2);
+    const drawY = Math.round((a4H - drawH) / 2);
+
+    ctx.drawImage(baseCanvas, drawX, drawY, drawW, drawH);
+
+    // ब्राइटनेस / कंट्रास्ट और मोड फ़िल्टर
     const imgData = ctx.getImageData(0, 0, finalCanvas.width, finalCanvas.height);
     const d = imgData.data;
-
     const factor = (259 * (cVal * 1.5 + 255)) / (255 * (259 - cVal * 1.5));
     const brightShift = bVal * 2.2;
 
@@ -606,55 +657,71 @@ export default function DocumentScannerPage() {
       let g = d[i + 1];
       let b = d[i + 2];
 
-      const gray = 0.299 * r + 0.587 * g + 0.114 * b;
-
       if (mode === "grayscale") {
-        r = g = b = gray;
+        const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+        r = gray; g = gray; b = gray;
       } else if (mode === "bw") {
-        const threshold = 132 - bVal * 1.6;
-        const val = gray > threshold ? 255 : 0;
-        r = g = b = val;
+        const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+        const bw = gray > 140 ? 255 : 0;
+        r = bw; g = bw; b = bw;
       } else if (mode === "magic") {
-        const boost = (gray / 255) * 45;
-        r = Math.min(255, r + boost);
-        g = Math.min(255, g + boost);
-        b = Math.min(255, b + boost);
+        r = Math.min(255, r * 1.1 + 10);
+        g = Math.min(255, g * 1.1 + 10);
+        b = Math.min(255, b * 1.1 + 10);
       }
 
       if (mode !== "bw") {
         r = factor * (r - 128) + 128 + brightShift;
         g = factor * (g - 128) + 128 + brightShift;
         b = factor * (b - 128) + 128 + brightShift;
-
-        r = Math.min(255, Math.max(0, r));
-        g = Math.min(255, Math.max(0, g));
-        b = Math.min(255, Math.max(0, b));
       }
 
-      d[i] = r;
-      d[i + 1] = g;
-      d[i + 2] = b;
+      d[i] = Math.min(255, Math.max(0, r));
+      d[i + 1] = Math.min(255, Math.max(0, g));
+      d[i + 2] = Math.min(255, Math.max(0, b));
     }
-
     ctx.putImageData(imgData, 0, 0);
 
-    try {
-      const smartRes = await exportSmartJpg(finalCanvas, {
-        targetKb: desiredKb,
-        isDocument: true,
-        minQuality: 0.15,
-        maxQuality: 0.98,
-      });
+    // अक्षरों को शार्प करने वाला कर्नल लागू करें
+    applySharpnessFilter(ctx, finalCanvas.width, finalCanvas.height, desiredKb <= 50 ? 0.45 : 0.3);
 
-      setActualKb(smartRes.actualKb);
-      setJpgDownloadUrl(smartRes.dataUrl);
-      return smartRes.dataUrl;
-    } catch {
-      const fallbackUrl = finalCanvas.toDataURL("image/jpeg", 0.75);
-      setActualKb(Math.round((fallbackUrl.length * 3) / 4 / 1024));
-      setJpgDownloadUrl(fallbackUrl);
-      return fallbackUrl;
+    // बाइनरी सर्च आधारित सटीक KB कंप्रेशन लूप
+    if (desiredKb === 0) {
+      // Max HD ओरिजिनल मोड (नो कम्प्रेशन)
+      const hdUrl = finalCanvas.toDataURL("image/jpeg", 0.98);
+      const kb = Math.round((hdUrl.length * 3) / 4 / 1024);
+      setActualKb(kb);
+      setJpgDownloadUrl(hdUrl);
+      return hdUrl;
     }
+
+    let minQ = 0.05;
+    let maxQ = 0.95;
+    let bestUrl = "";
+    let bestKb = 0;
+
+    for (let iter = 0; iter < 7; iter++) {
+      const midQ = (minQ + maxQ) / 2;
+      const url = finalCanvas.toDataURL("image/jpeg", midQ);
+      const sizeKb = Math.round((url.length * 3) / 4 / 1024);
+
+      bestUrl = url;
+      bestKb = sizeKb;
+
+      if (Math.abs(sizeKb - desiredKb) <= 2) {
+        break;
+      }
+
+      if (sizeKb > desiredKb) {
+        maxQ = midQ;
+      } else {
+        minQ = midQ;
+      }
+    }
+
+    setActualKb(bestKb);
+    setJpgDownloadUrl(bestUrl);
+    return bestUrl;
   };
 
   const handleSliderChange = (newFilter: FilterMode, newB: number, newC: number, newKb: number) => {
