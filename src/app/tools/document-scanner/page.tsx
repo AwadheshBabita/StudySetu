@@ -19,6 +19,7 @@ export default function DocumentScannerPage() {
   const [orientation, setOrientation] = useState<PageOrientation>("portrait");
   const [brightness, setBrightness] = useState<number>(0);
   const [contrast, setContrast] = useState<number>(20);
+  const [saturation, setSaturation] = useState<number>(0);
   const [targetKb, setTargetKb] = useState<number>(250);
   const [actualKb, setActualKb] = useState<number>(250);
   const [processing, setProcessing] = useState<boolean>(false);
@@ -28,6 +29,7 @@ export default function DocumentScannerPage() {
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const baseProcessedCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const rawCroppedCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
 
   const cornersRef = useRef<Point[]>([]);
@@ -483,7 +485,8 @@ export default function DocumentScannerPage() {
 
         ctx.drawImage(straightCanvas, posX, posY, fitW, fitH);
 
-        baseProcessedCanvasRef.current = outCanvas;
+        rawCroppedCanvasRef.current = straightCanvas;
+        baseProcessedCanvasRef.current = straightCanvas;
         processFilterAndCompression(outCanvas, filter, brightness, contrast, targetKb);
         setStep("filter");
       } catch (err) {
@@ -541,7 +544,7 @@ export default function DocumentScannerPage() {
 
     baseProcessedCanvasRef.current = outCvs;
     // शीट का ओरिएंटेशन छेड़े बिना रेंडर करें
-    processFilterAndCompression(outCvs, filter, brightness, contrast, targetKb);
+    processFilterAndCompression(outCvs, filter, brightness, contrast, targetKb, orientation, saturation);
   };
 
   const handleOrientationChange = (newMode: PageOrientation) => {
@@ -591,7 +594,8 @@ export default function DocumentScannerPage() {
     bVal: number,
     cVal: number,
     desiredKb: number,
-    targetOrientation: PageOrientation = orientation
+    targetOrientation: PageOrientation = orientation,
+    satVal: number = saturation
   ) => {
     // 1. A4 शीट का आयाम (Portrait vs Landscape)
     let a4W = targetOrientation === "portrait" ? 1240 : 1754;
@@ -627,20 +631,50 @@ export default function DocumentScannerPage() {
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, finalCanvas.width, finalCanvas.height);
 
-    // स्मार्ट ऑटो-फिट
-    const isSheetPortrait = a4W <= a4H;
-    const isDocPortrait = baseCanvas.width <= baseCanvas.height;
-    let marginPercent = (isSheetPortrait === isDocPortrait) ? 0.012 : 0.04;
-    const marginX = Math.round(a4W * marginPercent);
-    const marginY = Math.round(a4H * marginPercent);
+    // स्मार्ट ऑटो-फ़िट: जब ओरिएंटेशन मैच करे तो 100% फुल-पेज फिट, वरना आनुपातिक सेंटर फिट
+    const isDocPortrait = baseCanvas.height >= baseCanvas.width;
+    const isSheetPortrait = a4H >= a4W;
 
-    const availW = a4W - (marginX * 2);
-    const availH = a4H - (marginY * 2);
-    const imgRatio = baseCanvas.width / baseCanvas.height;
-    const pageRatio = availW / availH;
+    // अगर दोनों का ओरिएंटेशन मेल खा गया (दोनों पोर्ट्रेट या दोनों लैंडस्केप)
+    const isMatching = isDocPortrait === isSheetPortrait;
 
-    let drawW = (imgRatio > pageRatio) ? availW : availH * imgRatio;
-    let drawH = (imgRatio > pageRatio) ? availW / imgRatio : availH;
+    // मैच होने पर न्यूनतम प्रिंट बॉर्डर (0.8%), मिसमैच होने पर संतुलित बॉर्डर
+    const marginRatio = isMatching ? 0.008 : 0.02;
+    const mX = Math.round(a4W * marginRatio);
+    const mY = Math.round(a4H * marginRatio);
+    const maxW = a4W - (mX * 2);
+    const maxH = a4H - (mY * 2);
+
+    const docRatio = baseCanvas.width / baseCanvas.height;
+    const a4Ratio = maxW / maxH;
+
+    let drawW = maxW;
+    let drawH = maxH;
+
+    if (isMatching) {
+      // जब मैच हो तो बिना किसी अतिरिक्त खाली जगह के A4 के अधिकतम अनुपात में फुल फिट करें
+      if (Math.abs(docRatio - a4Ratio) < 0.15) {
+        // लगभग A4 अनुपात होने पर पूरा किनारा-से-किनारा भरेगा
+        drawW = maxW;
+        drawH = maxH;
+      } else if (docRatio > a4Ratio) {
+        drawW = maxW;
+        drawH = Math.round(maxW / docRatio);
+      } else {
+        drawH = maxH;
+        drawW = Math.round(maxH * docRatio);
+      }
+    } else {
+      // जब मिसमैच हो (जैसे पोर्ट्रेट शीट में लैंडस्केप डॉक्युमेंट) तो बिना कटे सुरक्षित सेंटर
+      if (docRatio > a4Ratio) {
+        drawW = maxW;
+        drawH = Math.round(maxW / docRatio);
+      } else {
+        drawH = maxH;
+        drawW = Math.round(maxH * docRatio);
+      }
+    }
+
     const drawX = Math.round((a4W - drawW) / 2);
     const drawY = Math.round((a4H - drawH) / 2);
 
@@ -670,6 +704,23 @@ export default function DocumentScannerPage() {
         b = Math.min(255, b * 1.1 + 10);
       }
 
+      if (satVal !== 0 && mode !== "bw" && mode !== "grayscale") {
+        const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+        const satMult = Math.max(0, 1 + (satVal / 100) * 1.8);
+        r = lum + (r - lum) * satMult;
+        g = lum + (g - lum) * satMult;
+        b = lum + (b - lum) * satMult;
+      }
+
+      // कलर सैचुरेशन इंजन (गाढ़ा / हल्का)
+      if (satVal !== 0 && mode !== "bw" && mode !== "grayscale") {
+        const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+        const satMult = Math.max(0, 1 + (satVal / 100) * 1.8);
+        r = lum + (r - lum) * satMult;
+        g = lum + (g - lum) * satMult;
+        b = lum + (b - lum) * satMult;
+      }
+
       if (mode !== "bw") {
         r = factor * (r - 128) + 128 + brightShift;
         g = factor * (g - 128) + 128 + brightShift;
@@ -695,8 +746,19 @@ export default function DocumentScannerPage() {
       return hdUrl;
     }
 
+        // अगर मैक्स एचडी है तो कंप्रेशन सर्च बायपास करें और फुल क्वालिटी दें
+    if (desiredKb === 0) {
+      const fullHdUrl = finalCanvas.toDataURL("image/jpeg", 0.98);
+      const head = "data:image/jpeg;base64,";
+      const sizeBytes = Math.round((fullHdUrl.length - head.length) * 3 / 4);
+      const finalKb = Math.round(sizeBytes / 1024);
+      setActualKb(finalKb);
+      setJpgDownloadUrl(fullHdUrl);
+      return fullHdUrl;
+    }
+
     let minQ = 0.05;
-    let maxQ = 0.95;
+    let maxQ = 0.98;
     let bestUrl = "";
     let bestKb = 0;
 
@@ -724,17 +786,24 @@ export default function DocumentScannerPage() {
     return bestUrl;
   };
 
-  const handleSliderChange = (newFilter: FilterMode, newB: number, newC: number, newKb: number) => {
+  const handleSliderChange = (
+    newFilter: FilterMode,
+    newB: number,
+    newC: number,
+    newKb: number,
+    newSat: number = saturation
+  ) => {
     setFilter(newFilter);
     setBrightness(newB);
     setContrast(newC);
     setTargetKb(newKb);
+    setSaturation(newSat);
 
     if (kbDebounceRef.current) clearTimeout(kbDebounceRef.current);
     kbDebounceRef.current = setTimeout(() => {
       const canvas = baseProcessedCanvasRef.current;
       if (canvas) {
-        processFilterAndCompression(canvas, newFilter, newB, newC, newKb);
+        processFilterAndCompression(canvas, newFilter, newB, newC, newKb, orientation, newSat);
       }
     }, 60);
   };
@@ -1095,51 +1164,102 @@ export default function DocumentScannerPage() {
                     className="w-full accent-blue-600 cursor-pointer"
                   />
                 </div>
+
+                <div>
+                  <div className="flex justify-between text-xs font-semibold text-slate-700 mb-1">
+                    <span>कलर सैचुरेशन (रंग का गाढ़ापन):</span>
+                    <span className="font-mono text-blue-700 font-bold">{saturation > 0 ? `+${saturation}%` : `${saturation}%`}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="-100"
+                    max="100"
+                    step="5"
+                    value={saturation}
+                    onChange={(e) => handleSliderChange(filter, brightness, contrast, targetKb, Number(e.target.value))}
+                    className="w-full accent-blue-600 cursor-pointer"
+                  />
+                  <div className="flex justify-between text-[10px] text-slate-500 mt-0.5">
+                    <span>हल्का / फीका (-100%)</span>
+                    <span>डिफ़ॉल्ट (0%)</span>
+                    <span>गाढ़ा चटक (+100%)</span>
+                  </div>
+                </div>
               </div>
 
               {/* KB साइज़ कंट्रोलर */}
-              <div className="bg-blue-50/70 p-3 rounded-xl border border-blue-200 space-y-2">
+              <div className="bg-blue-50/70 p-3 rounded-xl border border-blue-200 space-y-3">
                 <div className="flex justify-between items-center text-xs font-bold text-blue-950">
-                  <span>फ़ाइल साइज़ (KB टारगेट):</span>
-                  <span className="bg-blue-600 text-white px-2.5 py-0.5 rounded-full text-[11px]">
-                    लगभग {actualKb} KB
+                  <span>फ़ाइल क्वालिटी व साइज़:</span>
+                  <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-mono shadow-xs ${
+                    targetKb === 0 
+                      ? "bg-emerald-600 text-white font-bold" 
+                      : "bg-blue-700 text-white"
+                  }`}>
+                    {targetKb === 0 ? "मैक्स एचडी (ओरिजिनल)" : `लगभग ${actualKb} KB`}
                   </span>
                 </div>
 
-                <div className="grid grid-cols-3 gap-1.5">
-                  {[
-                    { label: "पोर्टल (100 KB)", kb: 100 },
-                    { label: "मानक (250 KB)", kb: 250 },
-                    { label: "हाई HD (500 KB)", kb: 500 },
-                  ].map((p) => (
-                    <button
-                      key={p.kb}
-                      type="button"
-                      onClick={() => handleSliderChange(filter, brightness, contrast, p.kb)}
-                      className={`py-1.5 px-1 text-[11px] font-bold rounded-lg border transition ${
-                        targetKb === p.kb
-                          ? "bg-blue-700 text-white border-blue-700 shadow-sm"
-                          : "bg-white text-blue-900 border-blue-200 hover:bg-blue-100"
-                      }`}
-                    >
-                      {p.label}
-                    </button>
-                  ))}
+                {/* मोड चयन: प्रीसेट KB बटन्स और मैक्स एचडी */}
+                <div className="space-y-1.5">
+                  <div className="grid grid-cols-3 sm:grid-cols-6 gap-1">
+                    {[
+                      { label: "10 KB", kb: 10 },
+                      { label: "20 KB", kb: 20 },
+                      { label: "50 KB", kb: 50 },
+                      { label: "100 KB", kb: 100 },
+                      { label: "200 KB", kb: 200 },
+                      { label: "300 KB", kb: 300 },
+                    ].map((p) => (
+                      <button
+                        key={p.kb}
+                        type="button"
+                        onClick={() => handleSliderChange(filter, brightness, contrast, p.kb)}
+                        className={`py-1.5 px-1 text-[11px] font-bold rounded-lg border transition text-center ${
+                          targetKb === p.kb
+                            ? "bg-blue-700 text-white border-blue-700 shadow-xs"
+                            : "bg-white text-blue-900 border-blue-200 hover:bg-blue-100"
+                        }`}
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* अलग मैक्स एचडी बटन */}
+                  <button
+                    type="button"
+                    onClick={() => handleSliderChange(filter, brightness, contrast, 0)}
+                    className={`w-full py-2 px-3 text-xs font-bold rounded-xl border transition flex items-center justify-center gap-1.5 shadow-xs ${
+                      targetKb === 0
+                        ? "bg-emerald-600 text-white border-emerald-700 ring-2 ring-emerald-300"
+                        : "bg-white text-emerald-800 border-emerald-300 hover:bg-emerald-50"
+                    }`}
+                  >
+                    <span>⭐</span>
+                    <span>मैक्स एचडी</span>
+                  </button>
                 </div>
 
-                <div>
+                {/* कस्टम KB स्लाइडर (मैक्स एचडी ऑन होने पर डिसेबल) */}
+                <div className={`transition-opacity ${targetKb === 0 ? "opacity-35 pointer-events-none" : "opacity-100"}`}>
+                  <div className="flex justify-between text-[11px] font-semibold text-slate-700 mb-1">
+                    <span>कस्टम साइज़ चुनें:</span>
+                    <span>{targetKb > 0 ? `${targetKb} KB` : "बंद"}</span>
+                  </div>
                   <input
                     type="range"
-                    min="50"
+                    min="10"
                     max="600"
-                    step="10"
-                    value={targetKb}
+                    step="5"
+                    disabled={targetKb === 0}
+                    value={targetKb === 0 ? 300 : targetKb}
                     onChange={(e) => handleSliderChange(filter, brightness, contrast, Number(e.target.value))}
-                    className="w-full accent-blue-700 cursor-pointer"
+                    className="w-full accent-blue-700 cursor-pointer disabled:cursor-not-allowed"
                   />
                   <div className="flex justify-between text-[10px] text-slate-500 mt-0.5 font-medium">
-                    <span>50 KB</span>
-                    <span>कस्टम स्लाइडर</span>
+                    <span>10 KB</span>
+                    <span>300 KB</span>
                     <span>600 KB</span>
                   </div>
                 </div>
