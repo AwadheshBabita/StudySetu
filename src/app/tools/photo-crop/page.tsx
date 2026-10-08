@@ -629,19 +629,76 @@ export default function PhotoDocEditorPage() {
   };
 
   const handleDownloadJpg = async () => {
-    const canvas = await makeFinalCanvas();
-    if (!canvas) return;
+    const originalCanvas = await makeFinalCanvas();
+    if (!originalCanvas) return;
 
-    let quality = 0.99; // Full HD पर 100% ओरिजिनल क्रिस्टल क्लियर आउटपुट
-    if (kbMode === "custom") {
-      if (customKb <= 30) quality = 0.45;
-      else if (customKb <= 60) quality = 0.65;
-      else if (customKb <= 120) quality = 0.80;
-      else if (customKb <= 300) quality = 0.90;
-      else quality = 0.95;
+    let data = "";
+
+    if (kbMode === "hd") {
+      // Full HD: 100% क्रिस्टल क्लियर ओरिजिनल आउटपुट
+      data = originalCanvas.toDataURL("image/jpeg", 0.99);
+    } else {
+      // स्मार्ट शार्प कस्टम KB इंजन (टारगेट KB की गारंटी + शार्पनेस)
+      const targetBytes = customKb * 1024;
+      let bestData = "";
+      let currentCanvas = originalCanvas;
+
+      const getBlob = (cvs, q) => new Promise(res => cvs.toBlob(res, "image/jpeg", q));
+      const blobToDataUrl = (b) => new Promise(res => {
+        const reader = new FileReader();
+        reader.onloadend = () => res(reader.result);
+        reader.readAsDataURL(b);
+      });
+
+      // 4 स्टेप्स तक स्मार्ट स्केलिंग (ताकि पिक्सल सिर्फ जरूरत पड़ने पर ही और हाई-क्वालिटी में घटें)
+      for (let pass = 0; pass < 4; pass++) {
+        let minQ = 0.20;
+        let maxQ = 0.95;
+        let passBestData = "";
+        let passBestSize = 0;
+
+        for (let i = 0; i < 7; i++) {
+          const midQ = (minQ + maxQ) / 2;
+          const blob = await getBlob(currentCanvas, midQ);
+          if (!blob) break;
+
+          const size = blob.size;
+          if (size <= targetBytes) {
+            if (size > passBestSize) {
+              passBestSize = size;
+              passBestData = await blobToDataUrl(blob);
+            }
+            minQ = midQ; // और शार्प क्वालिटी की कोशिश
+          } else {
+            maxQ = midQ;
+          }
+        }
+
+        if (passBestData) {
+          bestData = passBestData;
+          break; // टारगेट KB के अंदर सबसे शार्प वर्शन मिल गया!
+        }
+
+        // अगर सबसे कम क्वालिटी पर भी साइज़ बड़ा है (जैसे 10 KB या 20 KB का टारगेट),
+        // तो हाई-क्वालिटी एंटी-एलियासिंग के साथ हल्का सा रीसाइज करें
+        const scaleFactor = 0.85;
+        const nextCvs = document.createElement("canvas");
+        nextCvs.width = Math.max(120, Math.round(currentCanvas.width * scaleFactor));
+        nextCvs.height = Math.max(120, Math.round(currentCanvas.height * scaleFactor));
+        const ctx = nextCvs.getContext("2d");
+        if (ctx) {
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = "high";
+          ctx.drawImage(currentCanvas, 0, 0, nextCvs.width, nextCvs.height);
+          currentCanvas = nextCvs;
+        } else {
+          break;
+        }
+      }
+
+      data = bestData || currentCanvas.toDataURL("image/jpeg", 0.5);
     }
 
-    let data = canvas.toDataURL("image/jpeg", quality);
     data = setJpgDpi300(data);
 
     const a = document.createElement("a");
