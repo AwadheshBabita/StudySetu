@@ -1,4 +1,6 @@
 import { MetadataRoute } from 'next';
+import fs from 'fs';
+import path from 'path';
 
 export default function sitemap(): MetadataRoute.Sitemap {
   const baseUrl = 'https://examsewa.online';
@@ -14,44 +16,20 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { url: `${baseUrl}/disclaimer`, priority: 0.6, changeFrequency: 'monthly' as const },
   ];
 
-  // 2. सभी कार्यशील टूल्स (सटीक रूट्स)
-  const activeTools = [
-    'pdf-compressor',
-    'document-scanner',
-    'pdf-to-jpg',
-    'jpg-to-pdf',
-    'photo-name-date',
-    'photo-resizer',
-    'photo-resize',
-    'signature-resize',
-    'signature-crop',
-    'exact-kb-compressor',
-    'exact-pixel-resize',
-    'id-card-joiner',
-    'id-card-cropper',
-    'certificate-fitter',
-    'passport-grid-maker',
-    'passport-photo-4x6-maker',
-    'live-photo-capture',
-    'age-calculator',
-    'image-format-converter',
-    'pdf-merge-split',
-    'pdf-rotate-delete',
-    'pdf-password',
-    'pdf-watermark',
-    'ssc-photo-maker',
-    'up-police-photo-resizer',
-    'bihar-rtps-document-compressor',
-    'agniveer-live-photo',
-    'rrb-railway-photo-maker',
-    'mpsc-photo-resizer',
-    'wbpsc-photo-resizer',
-    'tnpsc-photo-maker',
-    'csc-corner',
-    'exam-guide',
-  ];
+  // 2. src/app/tools/ से सभी 47 टूल्स के फोल्डर्स को ऑटोमैटिक लोड करें
+  const toolsDirectory = path.join(process.cwd(), 'src/app/tools');
+  let toolSlugs: string[] = [];
 
-  const toolUrls = activeTools.map((slug) => ({
+  try {
+    const entries = fs.readdirSync(toolsDirectory, { withFileTypes: true });
+    toolSlugs = entries
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name);
+  } catch (err) {
+    console.error('Error reading tools directory for sitemap:', err);
+  }
+
+  const toolUrls = toolSlugs.map((slug) => ({
     url: `${baseUrl}/tools/${slug}`,
     lastModified: now,
     changeFrequency: 'weekly' as const,

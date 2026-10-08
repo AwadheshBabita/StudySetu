@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, ChangeEvent } from "react";
 import Link from "next/link";
 
 interface CropRect {
@@ -10,10 +10,11 @@ interface CropRect {
   h: number;
 }
 
-type AspectPreset = "free" | "1:1" | "passport" | "4:6" | "5:7" | "signature" | "card" | "a4";
+type AspectPreset = "free" | "1:1" | "passport" | "4:6" | "5:7" | "8:10" | "signature" | "card" | "a4";
 type EditorMode = "photo" | "document";
 
 export default function PhotoDocEditorPage() {
+  const [mounted, setMounted] = useState<boolean>(false);
   const [step, setStep] = useState<"upload" | "crop" | "editor">("upload");
   const [editorMode, setEditorMode] = useState<EditorMode>("photo");
 
@@ -22,33 +23,148 @@ export default function PhotoDocEditorPage() {
   const [croppedUrl, setCroppedUrl] = useState<string>("");
   const [bgRemovedUrl, setBgRemovedUrl] = useState<string | null>(null);
 
-  // क्रॉप स्टेट्स
-  const [crop, setCrop] = useState<CropRect>({ x: 15, y: 15, w: 70, h: 70 });
+  // Crop Box & Preset States
   const [preset, setPreset] = useState<AspectPreset>("passport");
+  const [photoOrientation, setPhotoOrientation] = useState<"portrait" | "landscape">("portrait");
   const [zoomLevel, setZoomLevel] = useState<number>(1);
+  const [crop, setCrop] = useState<CropRect>({ x: 10, y: 10, w: 80, h: 80 });
 
-  const [dragging, setDragging] = useState<boolean>(false);
-  const [dragMode, setDragMode] = useState<string | null>(null);
-  const [startPos, setStartPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
-  const [startCrop, setStartCrop] = useState<CropRect>({ x: 0, y: 0, w: 0, h: 0 });
-
-  // फोटो एडजस्टमेंट्स
+  // Adjustments
   const [brightness, setBrightness] = useState<number>(100);
   const [contrast, setContrast] = useState<number>(100);
   const [saturation, setSaturation] = useState<number>(100);
-  const [isBw, setIsBw] = useState<boolean>(false);
-  const [hasBorder, setHasBorder] = useState<boolean>(false);
-  const [bgColor, setBgColor] = useState<string>("#1e3a8a");
+  const [isAutoEnhanced, setIsAutoEnhanced] = useState<boolean>(false);
+  const [tuneMode, setTuneMode] = useState<"manual" | "auto">("manual");
+  const [fitMode, setFitMode] = useState<"fit" | "fill">("fit");
   const [rotation, setRotation] = useState<number>(0);
-  const [targetKb, setTargetKb] = useState<number | "hd">("hd");
-  const [isRemovingBg, setIsRemovingBg] = useState<boolean>(false);
-  const [bgProgress, setBgProgress] = useState<number>(0);
+  const [flipH, setFlipH] = useState<boolean>(false);
+  const [flipV, setFlipV] = useState<boolean>(false);
+  const [isBw, setIsBw] = useState<boolean>(false);
 
+  // Photo Mode Specifics
+  const [bgColor, setBgColor] = useState<string>("transparent");
+  const [hasBorder, setHasBorder] = useState<boolean>(false);
+  const [enableStamp, setEnableStamp] = useState<boolean>(false);
+  const [candidateName, setCandidateName] = useState<string>("");
+  const [dopDate, setDopDate] = useState<string>("");
+  const [stampFontSize, setStampFontSize] = useState<number>(16);
+
+  // AI Bg State
+  const [isRemovingBg, setIsRemovingBg] = useState<boolean>(false);
+
+  // Quality & KB States
+  const [kbMode, setKbMode] = useState<"hd" | "custom">("hd");
+  const [customKb, setCustomKb] = useState<number>(50);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const sourceImgRef = useRef<HTMLImageElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const dragRef = useRef<{
+    type: string | null;
+    startX: number;
+    startY: number;
+    cropStart: CropRect;
+  }>({ type: null, startX: 0, startY: 0, cropStart: { x: 0, y: 0, w: 0, h: 0 } });
 
-  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+  useEffect(() => {
+    setMounted(true);
+    const today = new Date().toISOString().split("T")[0];
+    setDopDate(today);
+  }, []);
+
+  const activeDisplayImg = bgRemovedUrl || croppedUrl;
+
+  const getPresetRatio = (p: AspectPreset): string => {
+    if (p === "passport") return "3.5 / 4.5";
+    if (p === "4:6") return photoOrientation === "portrait" ? "4 / 6" : "6 / 4";
+    if (p === "5:7") return photoOrientation === "portrait" ? "5 / 7" : "7 / 5";
+    if (p === "8:10") return photoOrientation === "portrait" ? "8 / 10" : "10 / 8";
+    if (p === "signature") return "3.5 / 1.5";
+    if (p === "card") return "8.5 / 5.5";
+    if (p === "a4") return photoOrientation === "portrait" ? "210 / 297" : "297 / 210";
+    if (p === "1:1") return "1 / 1";
+    return "auto";
+  };
+
+  const getTargetDimensions = (p: AspectPreset, orient: "portrait" | "landscape") => {
+    let w = 1200;
+    let h = 1800;
+
+    if (p === "passport") { w = 413; h = 531; } // 3.5 x 4.5 cm @ 300 DPI
+    else if (p === "4:6") { w = 1200; h = 1800; } // 4 x 6 inch @ 300 DPI
+    else if (p === "5:7") { w = 1500; h = 2100; } // 5 x 7 inch @ 300 DPI
+    else if (p === "8:10") { w = 2400; h = 3000; } // 8 x 10 inch @ 300 DPI
+    else if (p === "a4") { w = 2480; h = 3508; } // A4 Sheet @ 300 DPI
+    else if (p === "1:1") { w = 1200; h = 1200; }
+    else if (p === "card") { w = 1004; h = 650; } // ID / PAN Card
+    else if (p === "signature") { w = 413; h = 177; } // Sign 3.5 x 1.5 cm
+
+    if (orient === "landscape" && p !== "1:1") {
+      return { width: Math.max(w, h), height: Math.min(w, h) };
+    }
+    return { width: Math.min(w, h), height: Math.max(w, h) };
+  };
+
+  const setJpgDpi300 = (dataUrl: string): string => {
+    try {
+      const parts = dataUrl.split(",");
+      const raw = atob(parts[1]);
+      const rawLen = raw.length;
+      const bytes = new Uint8Array(rawLen);
+      for (let i = 0; i < rawLen; i++) {
+        bytes[i] = raw.charCodeAt(i);
+      }
+
+      let jfifFound = false;
+      for (let i = 0; i < Math.min(bytes.length - 18, 100); i++) {
+        if (
+          bytes[i] === 0xff &&
+          bytes[i + 1] === 0xe0 &&
+          bytes[i + 4] === 0x4a &&
+          bytes[i + 5] === 0x46 &&
+          bytes[i + 6] === 0x49 &&
+          bytes[i + 7] === 0x46
+        ) {
+          bytes[i + 13] = 1;     // DPI unit
+          bytes[i + 14] = 0x01;  // 300 DPI
+          bytes[i + 15] = 0x2c;
+          bytes[i + 16] = 0x01;
+          bytes[i + 17] = 0x2c;
+          jfifFound = true;
+          break;
+        }
+      }
+
+      let finalBytes = bytes;
+      if (!jfifFound && bytes[0] === 0xff && bytes[1] === 0xd8) {
+        const jfifHeader = new Uint8Array([
+          0xff, 0xe0, 0x00, 0x10,
+          0x4a, 0x46, 0x49, 0x46, 0x00,
+          0x01, 0x01,
+          0x01,
+          0x01, 0x2c,
+          0x01, 0x2c,
+          0x00, 0x00
+        ]);
+
+        finalBytes = new Uint8Array(bytes.length + jfifHeader.length);
+        finalBytes.set(bytes.subarray(0, 2), 0);
+        finalBytes.set(jfifHeader, 2);
+        finalBytes.set(bytes.subarray(2), 2 + jfifHeader.length);
+      }
+
+      let binary = "";
+      const len = finalBytes.byteLength;
+      for (let i = 0; i < len; i++) {
+        binary += String.fromCharCode(finalBytes[i]);
+      }
+      return "data:image/jpeg;base64," + btoa(binary);
+    } catch {
+      return dataUrl;
+    }
+  };
+
+  const handleFile = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -58,17 +174,9 @@ export default function PhotoDocEditorPage() {
       if (ev.target?.result) {
         setImgUrl(ev.target.result as string);
         setStep("crop");
-        setCrop({ x: 15, y: 15, w: 70, h: 70 });
-        setRotation(0);
-        setBrightness(100);
-        setContrast(100);
-        setSaturation(100);
-        setIsBw(false);
-        setHasBorder(false);
         setBgRemovedUrl(null);
-        setBgColor("#1e3a8a");
         setZoomLevel(1);
-        setTargetKb("hd");
+        applyPreset(preset);
       }
     };
     reader.readAsDataURL(file);
@@ -80,11 +188,16 @@ export default function PhotoDocEditorPage() {
     if (p === "passport") ratio = 3.5 / 4.5;
     else if (p === "4:6") ratio = 4 / 6;
     else if (p === "5:7") ratio = 5 / 7;
+    else if (p === "8:10") ratio = 8 / 10;
     else if (p === "signature") ratio = 3.5 / 1.5;
     else if (p === "card") ratio = 8.5 / 5.5;
     else if (p === "a4") ratio = 210 / 297;
     else if (p === "1:1") ratio = 1;
     else return;
+
+    if (photoOrientation === "landscape" && p !== "1:1" && p !== "free") {
+      ratio = 1 / ratio;
+    }
 
     setCrop((prev) => {
       let w = prev.w;
@@ -101,83 +214,104 @@ export default function PhotoDocEditorPage() {
     });
   };
 
-  const onDragStart = (e: React.MouseEvent | React.TouchEvent, mode: string) => {
-    e.stopPropagation();
-    if ("touches" in e && e.cancelable) {
-      e.preventDefault();
+    const toggleAutoEnhance = () => {
+    if (tuneMode !== "auto") {
+      setTuneMode("auto");
+      setIsAutoEnhanced(true);
+      setBrightness(112);
+      setContrast(120);
+      setSaturation(118);
+    } else {
+      setTuneMode("manual");
+      setIsAutoEnhanced(false);
+      setBrightness(100);
+      setContrast(100);
+      setSaturation(100);
     }
-    setDragging(true);
-    setDragMode(mode);
-    const cx = "touches" in e ? e.touches[0].clientX : e.clientX;
-    const cy = "touches" in e ? e.touches[0].clientY : e.clientY;
-    setStartPos({ x: cx, y: cy });
-    setStartCrop({ ...crop });
   };
 
-  const onDragMove = useCallback(
-    (e: MouseEvent | TouchEvent) => {
-      if (!dragging || !containerRef.current) return;
-      if (e.cancelable) e.preventDefault();
+  const handleManualSliderChange = (setter: (val: number) => void, val: number) => {
+    if (tuneMode === "auto") {
+      setTuneMode("manual");
+      setIsAutoEnhanced(false);
+    }
+    setter(val);
+  };
 
-      const cx = "touches" in e ? e.touches[0].clientX : e.clientX;
-      const cy = "touches" in e ? e.touches[0].clientY : e.clientY;
-
-      const rect = containerRef.current.getBoundingClientRect();
-      const dx = ((cx - startPos.x) / rect.width) * 100;
-      const dy = ((cy - startPos.y) / rect.height) * 100;
-
-      setCrop(() => {
-        let { x, y, w, h } = startCrop;
-
-        if (dragMode === "move") {
-          x = Math.max(0, Math.min(100 - w, x + dx));
-          y = Math.max(0, Math.min(100 - h, y + dy));
-        } else if (dragMode === "se") {
-          w = Math.max(8, Math.min(100 - x, w + dx));
-          h = Math.max(8, Math.min(100 - y, h + dy));
-        } else if (dragMode === "sw") {
-          const nw = Math.max(8, w - dx);
-          x = Math.max(0, x + (w - nw));
-          w = nw;
-          h = Math.max(8, Math.min(100 - y, h + dy));
-        } else if (dragMode === "ne") {
-          w = Math.max(8, Math.min(100 - x, w + dx));
-          const nh = Math.max(8, h - dy);
-          y = Math.max(0, y + (h - nh));
-          h = nh;
-        } else if (dragMode === "nw") {
-          const nw = Math.max(8, w - dx);
-          const nh = Math.max(8, h - dy);
-          x = Math.max(0, x + (w - nw));
-          y = Math.max(0, y + (h - nh));
-          w = nw;
-          h = nh;
-        }
-        return { x, y, w, h };
-      });
-    },
-    [dragging, dragMode, startPos, startCrop]
-  );
-
-  const onDragEnd = useCallback(() => {
-    setDragging(false);
-    setDragMode(null);
-  }, []);
+  const onDragStart = (e: React.MouseEvent | React.TouchEvent, type: string) => {
+    e.stopPropagation();
+    const clientX = "touches" in e ? e.touches[0].clientX : e.clientX;
+    const clientY = "touches" in e ? e.touches[0].clientY : e.clientY;
+    dragRef.current = {
+      type,
+      startX: clientX,
+      startY: clientY,
+      cropStart: { ...crop },
+    };
+  };
 
   useEffect(() => {
-    if (dragging) {
-      window.addEventListener("mousemove", onDragMove);
-      window.addEventListener("mouseup", onDragEnd);
-      window.addEventListener("touchmove", onDragMove, { passive: false });
-      window.addEventListener("touchend", onDragEnd);
-    }
-    return () => {
-      window.removeEventListener("mousemove", onDragMove);
-      window.removeEventListener("mouseup", onDragEnd);
-      window.removeEventListener("touchmove", onDragMove);
-      window.removeEventListener("touchend", onDragEnd);
+    const onMove = (e: MouseEvent | TouchEvent) => {
+      if (!dragRef.current.type || !containerRef.current) return;
+      const clientX = "touches" in e ? e.touches[0].clientX : (e as MouseEvent).clientX;
+      const clientY = "touches" in e ? e.touches[0].clientY : (e as MouseEvent).clientY;
+
+      const rect = containerRef.current.getBoundingClientRect();
+      const dx = ((clientX - dragRef.current.startX) / rect.width) * 100;
+      const dy = ((clientY - dragRef.current.startY) / rect.height) * 100;
+
+      const { cropStart, type } = dragRef.current;
+      let newCrop = { ...cropStart };
+
+      if (type === "move") {
+        newCrop.x = Math.max(0, Math.min(100 - newCrop.w, cropStart.x + dx));
+        newCrop.y = Math.max(0, Math.min(100 - newCrop.h, cropStart.y + dy));
+      } else if (type === "se") {
+        newCrop.w = Math.max(15, Math.min(100 - newCrop.x, cropStart.w + dx));
+        newCrop.h = Math.max(15, Math.min(100 - newCrop.y, cropStart.h + dy));
+      } else if (type === "sw") {
+        const potentialW = Math.max(15, cropStart.w - dx);
+        if (cropStart.x + dx >= 0) {
+          newCrop.x = cropStart.x + dx;
+          newCrop.w = potentialW;
+        }
+        newCrop.h = Math.max(15, Math.min(100 - newCrop.y, cropStart.h + dy));
+      } else if (type === "ne") {
+        newCrop.w = Math.max(15, Math.min(100 - newCrop.x, cropStart.w + dx));
+        if (cropStart.y + dy >= 0) {
+          newCrop.y = cropStart.y + dy;
+          newCrop.h = Math.max(15, cropStart.h - dy);
+        }
+      } else if (type === "nw") {
+        if (cropStart.x + dx >= 0) {
+          newCrop.x = cropStart.x + dx;
+          newCrop.w = Math.max(15, cropStart.w - dx);
+        }
+        if (cropStart.y + dy >= 0) {
+          newCrop.y = cropStart.y + dy;
+          newCrop.h = Math.max(15, cropStart.h - dy);
+        }
+      }
+
+      setCrop(newCrop);
     };
-  }, [dragging, onDragMove, onDragEnd]);
+
+    const onEnd = () => {
+      dragRef.current.type = null;
+    };
+
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onEnd);
+    window.addEventListener("touchmove", onMove);
+    window.addEventListener("touchend", onEnd);
+
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onEnd);
+      window.removeEventListener("touchmove", onMove);
+      window.removeEventListener("touchend", onEnd);
+    };
+  }, []);
 
   const confirmCrop = () => {
     const img = sourceImgRef.current;
@@ -187,42 +321,47 @@ export default function PhotoDocEditorPage() {
     const imgRect = img.getBoundingClientRect();
     const containerRect = container.getBoundingClientRect();
 
-    const renderedLeft = imgRect.left - containerRect.left;
-    const renderedTop = imgRect.top - containerRect.top;
-    const renderedWidth = imgRect.width;
-    const renderedHeight = imgRect.height;
+    // कंटेनर के अंदर इमेज का वास्तविक स्थान (offset)
+    const imgLeft = imgRect.left - containerRect.left;
+    const imgTop = imgRect.top - containerRect.top;
+    const imgWidth = imgRect.width;
+    const imgHeight = imgRect.height;
 
+    // क्रॉप बॉक्स का पिक्सल स्थान
     const cropPixelX = (crop.x / 100) * containerRect.width;
     const cropPixelY = (crop.y / 100) * containerRect.height;
     const cropPixelW = (crop.w / 100) * containerRect.width;
     const cropPixelH = (crop.h / 100) * containerRect.height;
 
-    const relX = Math.max(0, cropPixelX - renderedLeft);
-    const relY = Math.max(0, cropPixelY - renderedTop);
-    const relW = Math.min(cropPixelW, renderedWidth - relX);
-    const relH = Math.min(cropPixelH, renderedHeight - relY);
+    // सिर्फ इमेज के अंदर वाला क्रॉप एरिया
+    const intersectX = Math.max(imgLeft, cropPixelX);
+    const intersectY = Math.max(imgTop, cropPixelY);
+    const intersectRight = Math.min(imgLeft + imgWidth, cropPixelX + cropPixelW);
+    const intersectBottom = Math.min(imgTop + imgHeight, cropPixelY + cropPixelH);
 
-    const scaleX = img.naturalWidth / renderedWidth;
-    const scaleY = img.naturalHeight / renderedHeight;
+    const validW = Math.max(10, intersectRight - intersectX);
+    const validH = Math.max(10, intersectBottom - intersectY);
 
-    const sourceX = Math.round(relX * scaleX);
-    const sourceY = Math.round(relY * scaleY);
-    const sourceW = Math.round(relW * scaleX);
-    const sourceH = Math.round(relH * scaleY);
+    // ओरिजिनल इमेज (naturalWidth/naturalHeight) के स्केल पर कन्वर्शन
+    const scaleX = img.naturalWidth / imgWidth;
+    const scaleY = img.naturalHeight / imgHeight;
+
+    const sourceX = Math.round((intersectX - imgLeft) * scaleX);
+    const sourceY = Math.round((intersectY - imgTop) * scaleY);
+    const sourceW = Math.round(validW * scaleX);
+    const sourceH = Math.round(validH * scaleY);
 
     if (sourceW <= 0 || sourceH <= 0) return;
 
     const canvas = document.createElement("canvas");
     canvas.width = sourceW;
     canvas.height = sourceH;
-    const ctx = canvas.getContext("2d", { alpha: false });
+    const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, sourceW, sourceH);
     ctx.drawImage(img, sourceX, sourceY, sourceW, sourceH, 0, 0, sourceW, sourceH);
 
-    setCroppedUrl(canvas.toDataURL("image/jpeg", 0.98));
+    setCroppedUrl(canvas.toDataURL("image/png"));
     setBgRemovedUrl(null);
     setStep("editor");
   };
@@ -230,112 +369,55 @@ export default function PhotoDocEditorPage() {
   const handleRemoveBackground = async () => {
     if (!croppedUrl) return;
     setIsRemovingBg(true);
-    setBgProgress(5);
-
-    const timer = setInterval(() => {
-      setBgProgress((prev) => {
-        if (prev >= 95) return prev;
-        return prev + Math.floor(Math.random() * 8) + 3;
-      });
-    }, 350);
 
     try {
-      const { removeBackground } = await import("@imgly/background-removal");
-      const blob = await removeBackground(croppedUrl, {
-        progress: (key, current, total) => {
-          if (total > 0) {
-            const p = Math.round((current / total) * 100);
-            setBgProgress((prev) => Math.max(prev, Math.min(95, p)));
-          }
-        },
+      const formData = new FormData();
+      const resBlob = await fetch(croppedUrl).then((r) => r.blob());
+      formData.append("image_file", resBlob, "photo.png");
+
+      const response = await fetch("/api/remove-bg", {
+        method: "POST",
+        body: formData,
       });
 
-      clearInterval(timer);
-      setBgProgress(100);
-
-      const rawUrl = URL.createObjectURL(blob);
-      const cleanImg = new Image();
-      cleanImg.src = rawUrl;
-      await new Promise((r) => (cleanImg.onload = r));
-
-      const c = document.createElement("canvas");
-      c.width = cleanImg.width;
-      c.height = cleanImg.height;
-      const ctx = c.getContext("2d", { willReadFrequently: true });
-      if (ctx) {
-        ctx.drawImage(cleanImg, 0, 0);
-        const imgData = ctx.getImageData(0, 0, c.width, c.height);
-        const d = imgData.data;
-
-        for (let i = 0; i < d.length; i += 4) {
-          const alpha = d[i + 3];
-          if (alpha > 0 && alpha < 235) {
-            if (d[i] > 190 && d[i + 1] > 190 && d[i + 2] > 190) {
-              d[i + 3] = Math.round(alpha * 0.45);
-            }
-          }
-        }
-        ctx.putImageData(imgData, 0, 0);
-        setBgRemovedUrl(c.toDataURL("image/png"));
-      } else {
-        setBgRemovedUrl(rawUrl);
-      }
-
-      setBgColor("#1e3a8a");
+      if (!response.ok) throw new Error("BG Removal failed");
+      const blob = await response.blob();
+      setBgRemovedUrl(URL.createObjectURL(blob));
+      setBgColor("#ffffff");
     } catch {
-      alert("बैकग्राउंड हटाने में समस्या आई। कृपया दोबारा प्रयास करें।");
+      alert("बैकग्राउंड हटाने में समस्या आई। कृपया पुनः प्रयास करें।");
     } finally {
-      clearInterval(timer);
-      setTimeout(() => {
-        setIsRemovingBg(false);
-        setBgProgress(0);
-      }, 300);
+      setIsRemovingBg(false);
     }
   };
 
-  const handleAutoEnhance = () => {
-    setBrightness(110);
-    setContrast(115);
-    setSaturation(105);
-    setIsBw(false);
-  };
+  const makeFinalCanvas = async (): Promise<HTMLCanvasElement | null> => {
+    if (!activeDisplayImg) return null;
 
-  const handleResetAdjustments = () => {
-    setBrightness(100);
-    setContrast(100);
-    setSaturation(100);
-    setIsBw(false);
-  };
-
-  const activeDisplayImg = bgRemovedUrl || croppedUrl;
-
-  const makeFinalCanvas = (): Promise<HTMLCanvasElement | null> => {
     return new Promise((resolve) => {
-      if (!activeDisplayImg) return resolve(null);
       const img = new Image();
-      img.crossOrigin = "anonymous";
       img.onload = () => {
         const canvas = document.createElement("canvas");
-        const isRotated = rotation === 90 || rotation === 270;
-        const cw = isRotated ? img.height : img.width;
-        const ch = isRotated ? img.width : img.height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          resolve(null);
+          return;
+        }
+
+        const dims = getTargetDimensions(preset, photoOrientation);
+        const cw = dims.width;
+        const ch = dims.height;
 
         canvas.width = cw;
         canvas.height = ch;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return resolve(null);
 
-        if (bgColor !== "transparent") {
-          ctx.fillStyle = bgColor;
-          ctx.fillRect(0, 0, cw, ch);
-        } else {
-          ctx.fillStyle = "#ffffff";
-          ctx.fillRect(0, 0, cw, ch);
-        }
+        ctx.fillStyle = bgColor !== "transparent" ? bgColor : "#ffffff";
+        ctx.fillRect(0, 0, cw, ch);
 
         ctx.save();
         ctx.translate(cw / 2, ch / 2);
         ctx.rotate((rotation * Math.PI) / 180);
+        ctx.scale(flipH ? -1 : 1, flipV ? -1 : 1);
 
         const filterParts = [
           `brightness(${brightness}%)`,
@@ -345,11 +427,51 @@ export default function PhotoDocEditorPage() {
         if (isBw) filterParts.push("grayscale(100%)");
         ctx.filter = filterParts.join(" ");
 
-        ctx.drawImage(img, -img.width / 2, -img.height / 2);
+        const isRot = rotation % 180 !== 0;
+        const srcW = isRot ? img.height : img.width;
+        const srcH = isRot ? img.width : img.height;
+        const scale = fitMode === "fill" 
+          ? Math.max(cw / srcW, ch / srcH) 
+          : Math.min(cw / srcW, ch / srcH);
+        const renderW = img.width * scale;
+        const renderH = img.height * scale;
+
+        ctx.drawImage(img, -renderW / 2, -renderH / 2, renderW, renderH);
         ctx.restore();
 
+        if (editorMode === "photo" && enableStamp) {
+          const stampH = Math.max(60, Math.round(ch * 0.16));
+          const stampY = ch - stampH;
+
+          ctx.fillStyle = "#ffffff";
+          ctx.fillRect(0, stampY, cw, stampH);
+
+          ctx.strokeStyle = "#94a3b8";
+          ctx.lineWidth = Math.max(2, Math.round(cw * 0.004));
+          ctx.strokeRect(0, stampY, cw, stampH);
+
+          ctx.fillStyle = "#000000";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+
+          // स्लाइडर के आधार पर कैनवास का अनुपातित फ़ॉन्ट साइज़
+          const scaleFactor = cw / 413; // 413px पासपोर्ट बेस
+          const fontSize = Math.round(stampFontSize * scaleFactor);
+          ctx.font = `bold ${fontSize}px sans-serif`;
+
+          const formattedDate = dopDate ? dopDate.split("-").reverse().join("-") : "";
+
+          if (candidateName.trim()) {
+            ctx.fillText(candidateName.toUpperCase(), cw / 2, stampY + stampH * 0.34);
+            ctx.font = `bold ${Math.round(fontSize * 0.88)}px sans-serif`;
+            ctx.fillText(`DOP: ${formattedDate}`, cw / 2, stampY + stampH * 0.72);
+          } else {
+            ctx.fillText(`DOP: ${formattedDate}`, cw / 2, stampY + stampH / 2);
+          }
+        }
+
         if (hasBorder) {
-          ctx.lineWidth = Math.max(3, Math.round(cw * 0.012));
+          ctx.lineWidth = Math.max(1, Math.round(cw * 0.0025)); // स्टूडियो 1-2px बारीक बॉर्डर
           ctx.strokeStyle = "#1e293b";
           ctx.strokeRect(0, 0, cw, ch);
         }
@@ -365,13 +487,19 @@ export default function PhotoDocEditorPage() {
     if (!canvas) return;
 
     let quality = 0.98;
-    if (targetKb === 20) quality = 0.55;
-    else if (targetKb === 50) quality = 0.78;
-    else if (targetKb === 100) quality = 0.88;
+    if (kbMode === "custom") {
+      if (customKb <= 30) quality = 0.50;
+      else if (customKb <= 60) quality = 0.72;
+      else if (customKb <= 120) quality = 0.85;
+      else quality = 0.94;
+    }
 
-    const data = canvas.toDataURL("image/jpeg", quality);
+    let data = canvas.toDataURL("image/jpeg", quality);
+    data = setJpgDpi300(data);
+
     const a = document.createElement("a");
-    a.download = `ExamSewa_${fileName}_${targetKb === "hd" ? "HD" : targetKb + "kb"}.jpg`;
+    const tag = kbMode === "hd" ? "FullHD" : `${customKb}kb`;
+    a.download = `ExamSewa_${fileName}_${preset}_${tag}.jpg`;
     a.href = data;
     a.click();
   };
@@ -380,30 +508,26 @@ export default function PhotoDocEditorPage() {
     const canvas = await makeFinalCanvas();
     if (!canvas) return;
 
-    const imgData = canvas.toDataURL("image/jpeg", 0.98);
-    const pdfWindow = window.open("", "_blank");
-    if (!pdfWindow) {
-      alert("कृपया पॉप-अप की अनुमति दें।");
-      return;
-    }
+    const data = canvas.toDataURL("image/jpeg", 0.95);
+    const w = window.open("", "_blank");
+    if (!w) return;
 
-    pdfWindow.document.write(`
-      <!DOCTYPE html>
+    w.document.write(`
       <html>
         <head>
           <title>ExamSewa_${fileName}.pdf</title>
           <style>
             @page { size: auto; margin: 0; }
             body { margin: 0; display: flex; align-items: center; justify-content: center; height: 100vh; background: #fff; }
-            img { max-width: 95%; max-height: 95%; object-contain: contain; }
+            img { max-width: 100%; max-height: 100%; object-fit: contain; }
           </style>
         </head>
         <body>
-          <img src="${imgData}" onload="window.print();" />
+          <img src="${data}" onload="window.print(); window.close();" />
         </body>
       </html>
     `);
-    pdfWindow.document.close();
+    w.document.close();
   };
 
   const handleShare = async () => {
@@ -416,18 +540,27 @@ export default function PhotoDocEditorPage() {
       if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
         try {
           await navigator.share({
-            title: "ExamSewa फोटो",
-            text: "ExamSewa से तैयार की गई फोटो",
             files: [file],
+            title: "ExamSewa File",
+            text: "Edited via ExamSewa",
           });
         } catch {
-          handleDownloadJpg();
+          // ignore
         }
       } else {
-        handleDownloadJpg();
+        navigator.clipboard.writeText(window.location.href);
+        alert("लिंक कॉपी कर दिया गया है!");
       }
-    }, "image/jpeg", 0.98);
+    }, "image/jpeg", 0.95);
   };
+
+  if (!mounted) {
+    return (
+      <main className="min-h-screen bg-slate-50 py-8 px-4 flex items-center justify-center">
+        <div className="text-center font-bold text-slate-600">लोड हो रहा है...</div>
+      </main>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-slate-50 py-1 sm:py-2 px-2 sm:px-4 text-slate-800 select-none">
@@ -470,7 +603,7 @@ export default function PhotoDocEditorPage() {
               फोटो, साइन व डॉक्यूमेंट क्रॉप और एडिट करें
             </h2>
             <p className="text-xs text-slate-500 font-medium mb-3 max-w-md">
-              पासपोर्ट फोटो (3.5×4.5 cm), 4×6, 5×7, सिग्नेचर, पैन कार्ड या मार्कशीट को सही आकार में क्रॉप करें और ब्राइटनेस व KB साइज सेट करें।
+              पासपोर्ट फोटो (3.5×4.5 cm), 4×6, 5×7, 8×10, A4, सिग्नेचर व पैन कार्ड को सही आकार में क्रॉप करें और तुरंत 300 DPI में एडिट करें।
             </p>
 
             <label className="w-full sm:w-auto px-6 py-2.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-black text-sm rounded-xl shadow-lg shadow-blue-200 cursor-pointer transition-all flex items-center justify-center gap-2">
@@ -488,7 +621,7 @@ export default function PhotoDocEditorPage() {
               <div className="p-2 bg-slate-50 rounded-xl">📷 पासपोर्ट फोटो (3.5×4.5)</div>
               <div className="p-2 bg-slate-50 rounded-xl">✍️ सिग्नेचर (हस्ताक्षर)</div>
               <div className="p-2 bg-slate-50 rounded-xl">💳 पैन / आधार कार्ड</div>
-              <div className="p-2 bg-slate-50 rounded-xl">📄 A4 मार्कशीट</div>
+              <div className="p-2 bg-slate-50 rounded-xl">📄 A4 मार्कशीट / डॉक्यूमेंट</div>
             </div>
           </div>
         )}
@@ -496,7 +629,6 @@ export default function PhotoDocEditorPage() {
         {/* 2. क्रॉप स्क्रीन */}
         {step === "crop" && (
           <div className="flex flex-col lg:grid lg:grid-cols-12 gap-2 sm:gap-3 items-start pb-8">
-            {/* 1. क्रॉप बॉक्स - मोबाइल पर 100% स्टिकी और हेडर के नीचे सुरक्षित */}
             <div className="w-full lg:col-span-9 bg-slate-200/95 rounded-2xl border-2 border-slate-300 shadow-inner p-2 flex flex-col sticky top-11 z-30 h-[48vh] sm:h-[54vh] lg:h-[82vh] shrink-0">
               <div className="w-full flex items-center justify-between mb-1.5 text-xs font-black text-slate-700 px-1">
                 <span className="hidden sm:inline">क्रॉप बॉक्स को ड्रैग या कोनों से रीसाइज करें</span>
@@ -518,14 +650,12 @@ export default function PhotoDocEditorPage() {
                   >
                     +
                   </button>
-                  {zoomLevel !== 1 && (
-                    <button
-                      onClick={() => setZoomLevel(1)}
-                      className="ml-1 text-[9px] px-1 py-0.5 rounded bg-blue-50 text-blue-600 font-bold"
-                    >
-                      ↺
-                    </button>
-                  )}
+                  <button
+                    onClick={() => setZoomLevel(1)}
+                    className="ml-1 text-[9px] px-1 py-0.5 rounded bg-blue-50 text-blue-600 font-bold"
+                  >
+                    ↺
+                  </button>
                 </div>
 
                 <span className="text-blue-600 font-bold uppercase text-[11px] sm:text-xs">{preset}</span>
@@ -586,86 +716,29 @@ export default function PhotoDocEditorPage() {
                 </h3>
 
                 <div className="grid grid-cols-2 gap-2 mt-2">
-                  <button
-                    onClick={() => applyPreset("passport")}
-                    className={`py-2 px-1.5 rounded-xl text-xs font-black border transition-all cursor-pointer ${
-                      preset === "passport"
-                        ? "bg-blue-600 text-white border-blue-600 shadow-xs"
-                        : "bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200"
-                    }`}
-                  >
-                    📷 पासपोर्ट (3.5×4.5)
-                  </button>
-                  <button
-                    onClick={() => applyPreset("4:6")}
-                    className={`py-2 px-1.5 rounded-xl text-xs font-black border transition-all cursor-pointer ${
-                      preset === "4:6"
-                        ? "bg-blue-600 text-white border-blue-600 shadow-xs"
-                        : "bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200"
-                    }`}
-                  >
-                    🖼️️ 4×6 साइज़
-                  </button>
-                  <button
-                    onClick={() => applyPreset("5:7")}
-                    className={`py-2 px-1.5 rounded-xl text-xs font-black border transition-all cursor-pointer ${
-                      preset === "5:7"
-                        ? "bg-blue-600 text-white border-blue-600 shadow-xs"
-                        : "bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200"
-                    }`}
-                  >
-                    🖼️ 5×7 साइज़
-                  </button>
-                  <button
-                    onClick={() => applyPreset("signature")}
-                    className={`py-2 px-1.5 rounded-xl text-xs font-black border transition-all cursor-pointer ${
-                      preset === "signature"
-                        ? "bg-blue-600 text-white border-blue-600 shadow-xs"
-                        : "bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200"
-                    }`}
-                  >
-                    ✍️ सिग्नेचर
-                  </button>
-                  <button
-                    onClick={() => applyPreset("card")}
-                    className={`py-2 px-1.5 rounded-xl text-xs font-black border transition-all cursor-pointer ${
-                      preset === "card"
-                        ? "bg-blue-600 text-white border-blue-600 shadow-xs"
-                        : "bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200"
-                    }`}
-                  >
-                    💳 कार्ड / आईडी
-                  </button>
-                  <button
-                    onClick={() => applyPreset("a4")}
-                    className={`py-2 px-1.5 rounded-xl text-xs font-black border transition-all cursor-pointer ${
-                      preset === "a4"
-                        ? "bg-blue-600 text-white border-blue-600 shadow-xs"
-                        : "bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200"
-                    }`}
-                  >
-                    📄 A4 पेज
-                  </button>
-                  <button
-                    onClick={() => applyPreset("1:1")}
-                    className={`py-2 px-1.5 rounded-xl text-xs font-black border transition-all cursor-pointer ${
-                      preset === "1:1"
-                        ? "bg-blue-600 text-white border-blue-600 shadow-xs"
-                        : "bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200"
-                    }`}
-                  >
-                    ⏹️ 1:1 स्क्वायर
-                  </button>
-                  <button
-                    onClick={() => applyPreset("free")}
-                    className={`py-2 px-1.5 rounded-xl text-xs font-black border transition-all cursor-pointer ${
-                      preset === "free"
-                        ? "bg-blue-600 text-white border-blue-600 shadow-xs"
-                        : "bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200"
-                    }`}
-                  >
-                    🔓 फ़्री क्रॉप
-                  </button>
+                  {[
+                    { id: "passport", label: "पासपोर्ट (3.5×4.5)" },
+                    { id: "4:6", label: "4×6 इंच" },
+                    { id: "5:7", label: "5×7 इंच" },
+                    { id: "8:10", label: "8×10 इंच" },
+                    { id: "signature", label: "✍️ हस्ताक्षर (Sign)" },
+                    { id: "card", label: "💳 पहचान पत्र" },
+                    { id: "a4", label: "📄 A4 साइज" },
+                    { id: "1:1", label: "⏹️ 1:1 स्क्वायर" },
+                    { id: "free", label: "✂️️ फ्री क्रॉप" },
+                  ].map((item) => (
+                    <button
+                      key={item.id}
+                      onClick={() => applyPreset(item.id as AspectPreset)}
+                      className={`py-2 px-1.5 rounded-xl text-xs font-black border transition-all cursor-pointer ${
+                        preset === item.id
+                          ? "bg-blue-600 text-white border-blue-600 shadow-xs"
+                          : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100"
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
                 </div>
               </div>
 
@@ -682,8 +755,9 @@ export default function PhotoDocEditorPage() {
         {/* 3. मुख्य एडिटर स्क्रीन */}
         {step === "editor" && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 items-start pb-8">
-            {/* बायाँ प्रीव्यू बॉक्स - बड़ा और स्टिकी */}
+            {/* बायाँ प्रीव्यू बॉक्स */}
             <div className="lg:col-span-8 xl:col-span-9 bg-slate-200/95 rounded-2xl border-2 border-slate-300 shadow-inner p-2.5 flex flex-col sticky top-1 z-30 h-[48vh] sm:h-[54vh] lg:h-[82vh]">
+              {/* मोड स्विचर */}
               <div className="w-full flex items-center justify-between mb-1.5 px-1 shrink-0">
                 <div className="flex bg-white rounded-xl p-0.5 border border-slate-300 shadow-xs">
                   <button
@@ -708,33 +782,86 @@ export default function PhotoDocEditorPage() {
                   </button>
                 </div>
 
-                <button
-                  onClick={() => setStep("crop")}
-                  className="text-xs text-blue-600 hover:underline font-bold"
-                >
-                  ↩ दोबारा क्रॉप
-                </button>
+                <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                  {/* फिट vs फिल टॉगल */}
+                  <div className="flex bg-white rounded-lg p-0.5 border border-slate-300 shadow-2xs">
+                    <button
+                      type="button"
+                      onClick={() => setFitMode("fit")}
+                      className={`text-[11px] font-black px-2 py-0.5 rounded transition-all cursor-pointer ${
+                        fitMode === "fit" ? "bg-slate-900 text-white" : "text-slate-600 hover:text-slate-900"
+                      }`}
+                    >
+                      🛡️ फिट (मार्जिन)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFitMode("fill")}
+                      className={`text-[11px] font-black px-2 py-0.5 rounded transition-all cursor-pointer ${
+                        fitMode === "fill" ? "bg-blue-600 text-white" : "text-slate-600 hover:text-slate-900"
+                      }`}
+                    >
+                      📐 पूरा भरें (Fill)
+                    </button>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setPhotoOrientation(o => o === "portrait" ? "landscape" : "portrait")}
+                    className="text-[11px] bg-white border border-slate-300 px-2 py-1 rounded-lg font-bold text-slate-700 hover:bg-slate-50 cursor-pointer shadow-2xs"
+                  >
+                    {photoOrientation === "portrait" ? "↕️ पोर्ट्रेट" : "↔️ लैंडस्केप"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStep("crop")}
+                    className="text-[11px] text-blue-600 hover:underline font-bold px-1"
+                  >
+                    ↩ दोबारा क्रॉप
+                  </button>
+                </div>
               </div>
 
-              {/* फोटो फ्रेम */}
+              {/* फोटो / डॉक्यूमेंट फ्रेम और लाइव प्रीव्यू */}
               <div className="w-full flex-1 flex items-center justify-center p-2 bg-slate-100/70 rounded-xl border border-slate-300/80 shadow-inner overflow-hidden">
                 <div
-                  style={{ backgroundColor: bgColor !== "transparent" ? bgColor : "#ffffff" }}
-                  className={`relative p-1 rounded-xl shadow-lg border overflow-hidden flex items-center justify-center max-w-full max-h-full transition-colors ${
-                    hasBorder ? "border-slate-800 ring-2 ring-slate-800" : "border-slate-300"
+                  style={{
+                    backgroundColor: bgColor !== "transparent" ? bgColor : "#ffffff",
+                    aspectRatio: getPresetRatio(preset),
+                  }}
+                  className={`relative rounded-xl shadow-lg overflow-hidden flex flex-col items-center justify-center max-w-full max-h-full transition-all ${
+                    hasBorder ? "border-[1.5px] border-slate-900" : "border border-slate-300"
                   }`}
                 >
                   <img
                     src={activeDisplayImg}
-                    alt="Cropped Preview"
+                    alt="Preview"
                     style={{
-                      filter: `brightness(${brightness}%) contrast(${contrast}%) saturate(${
-                        isBw ? 0 : saturation
-                      }%) ${isBw ? "grayscale(100%)" : ""}`,
-                      transform: `rotate(${rotation}deg)`,
+                      filter: `brightness(${brightness}%) contrast(${contrast}%) saturate(${isBw ? 0 : saturation}%) ${
+                        isBw ? "grayscale(100%)" : ""
+                      }`,
+                      transform: `rotate(${rotation}deg) scaleX(${flipH ? -1 : 1}) scaleY(${flipV ? -1 : 1})`,
                     }}
-                    className="max-h-[38vh] sm:max-h-[46vh] lg:max-h-[70vh] max-w-[82vw] lg:max-w-[48vw] w-auto h-auto object-contain rounded block transition-all duration-150"
+                    className={`w-full h-full block transition-all duration-150 ${fitMode === "fill" ? "object-cover" : "object-contain"}`}
                   />
+
+                  {/* लाइव Name & DOP स्ट्रिप (फॉन्ट स्लाइडर से नियंत्रित) */}
+                  {editorMode === "photo" && enableStamp && (
+                    <div className="absolute bottom-0 left-0 right-0 bg-white border-t-2 border-slate-900 py-1 px-1.5 text-center select-none shadow-md z-20">
+                      <p
+                        style={{ fontSize: `${stampFontSize}px` }}
+                        className="font-black text-slate-950 uppercase leading-tight tracking-wide font-sans truncate"
+                      >
+                        {candidateName.trim() ? candidateName : "अभ्यर्थी का नाम"}
+                      </p>
+                      <p
+                        style={{ fontSize: `${Math.max(10, Math.round(stampFontSize * 0.82))}px` }}
+                        className="font-black text-slate-800 leading-tight mt-0.5 tracking-wider font-mono"
+                      >
+                        DOP: {dopDate ? dopDate.split("-").reverse().join("-") : "DD-MM-YYYY"}
+                      </p>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -745,20 +872,51 @@ export default function PhotoDocEditorPage() {
                 <h3 className="text-xs sm:text-sm font-black text-slate-900">
                   {editorMode === "photo" ? "📷 फोटो स्टूडियो टूल्स" : "📄 डॉक्यूमेंट टूल्स"}
                 </h3>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
-                  Active
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                  editorMode === "photo" ? "bg-blue-50 text-blue-700 border-blue-200" : "bg-emerald-50 text-emerald-700 border-emerald-200"
+                }`}>
+                  सक्रिय मोड
                 </span>
               </div>
 
               {/* 📷 फोटो मोड टूल्स */}
               {editorMode === "photo" && (
                 <div className="space-y-3 text-xs font-bold text-slate-700">
-                  {/* 1. AI बैकग्राउंड रिमूवर और 10 कलर पैलेट्स */}
+                  {/* 1. फोटो साइज़ मानक */}
+                  <div className="p-2.5 bg-blue-50/70 rounded-xl border border-blue-200 space-y-1.5">
+                    <span className="text-blue-950 font-black text-[11px]">📐 फोटो साइज़ मानक:</span>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {[
+                        { id: "passport", label: "पासपोर्ट (3.5×4.5)" },
+                        { id: "4:6", label: "🖼 4×6 इंच" },
+                        { id: "5:7", label: "🖼 5×7 इंच" },
+                        { id: "8:10", label: "🖼 8×10 इंच" },
+                        { id: "a4", label: "📄 A4 फोटो" },
+                        { id: "1:1", label: "⏹️ 1:1 स्क्वायर" },
+                      ].map((item) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => setPreset(item.id as AspectPreset)}
+                          className={`py-1.5 px-2 rounded-lg text-[11px] font-black border transition-all cursor-pointer ${
+                            preset === item.id
+                              ? "bg-blue-600 text-white border-blue-600 shadow-2xs"
+                              : "bg-white text-slate-700 border-slate-300 hover:bg-slate-100"
+                          }`}
+                        >
+                          {item.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* 2. AI बैकग्राउंड रिमूवर और 10 कलर्स */}
                   <div className="p-2.5 bg-blue-50/60 rounded-xl border border-blue-200 space-y-2">
                     <div className="flex items-center justify-between">
                       <span className="text-blue-900 font-black">✨ AI बैकग्राउंड</span>
                       {bgRemovedUrl && (
                         <button
+                          type="button"
                           onClick={() => {
                             setBgRemovedUrl(null);
                             setBgColor("transparent");
@@ -771,76 +929,45 @@ export default function PhotoDocEditorPage() {
                     </div>
 
                     <button
+                      type="button"
                       onClick={handleRemoveBackground}
                       disabled={isRemovingBg}
-                      className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-500 text-white font-black rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer text-xs relative overflow-hidden"
+                      className="w-full py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 disabled:opacity-50 text-white font-black rounded-lg shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer text-xs"
                     >
-                      {isRemovingBg ? (
-                        <>
-                          <svg className="animate-spin h-4 w-4 text-white" viewBox="0 0 24 24" fill="none">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                          </svg>
-                          <span>बैकग्राउंड बदल रहा है... ({bgProgress}%)</span>
-                          <span
-                            style={{ width: `${bgProgress}%` }}
-                            className="absolute bottom-0 left-0 h-1 bg-amber-400 transition-all duration-200"
-                          />
-                        </>
-                      ) : (
-                        <>
-                          <span>✂️</span>
-                          <span>बैकग्राउंड बदलें</span>
-                        </>
-                      )}
+                      <span>{isRemovingBg ? "बैकग्राउंड हटाया जा रहा है..." : "✨ 1-क्लिक बैकग्राउंड हटाएँ (AI)"}</span>
                     </button>
 
                     <div>
-                      <div className="flex items-center justify-between mb-1.5">
-                        <span className="text-[11px] font-black text-slate-700">रंग चुनें (10 शेड्स):</span>
-                        <span className="text-[10px] text-blue-600 font-bold uppercase">
-                          {bgColor === "transparent" ? "पारदर्शी" : bgColor}
-                        </span>
-                      </div>
-                      
-                      <div className="grid grid-cols-5 gap-2 p-1.5 bg-white rounded-xl border border-slate-200 shadow-2xs">
+                      <span className="text-[11px] font-black text-slate-700 block mb-1">
+                        🎨 स्टूडियो बैकग्राउंड कलर्स (10 शेड्स):
+                      </span>
+                      <div className="grid grid-cols-5 gap-1.5">
                         {[
                           { name: "पारदर्शी", color: "transparent", border: "border-slate-300" },
-                          { name: "सफ़ेद (व्हाइट)", color: "#ffffff", border: "border-slate-300" },
+                          { name: "शुद्ध सफेद", color: "#ffffff", border: "border-slate-300" },
                           { name: "हल्का नीला", color: "#93c5fd", border: "border-blue-300" },
-                          { name: "नेवी ब्लू", color: "#1e3a8a", border: "border-blue-900" },
-                          { name: "हल्का ग्रे", color: "#e2e8f0", border: "border-slate-300" },
-                          { name: "गहरा लाल", color: "#b91c1c", border: "border-red-700" },
-                          { name: "गहरा हरा", color: "#15803d", border: "border-emerald-700" },
-                          { name: "हल्का पीला", color: "#fef08a", border: "border-amber-300" },
+                          { name: "पासपोर्ट नीला", color: "#2563eb", border: "border-blue-700" },
+                          { name: "गहरा नेवी", color: "#1e3a8a", border: "border-blue-950" },
+                          { name: "हल्का लाल", color: "#fca5a5", border: "border-red-300" },
+                          { name: "स्टूडियो ग्रे", color: "#e2e8f0", border: "border-slate-300" },
+                          { name: "हल्का हरा", color: "#86efac", border: "border-green-300" },
+                          { name: "क्रीम येलो", color: "#fef08a", border: "border-amber-300" },
                           { name: "डार्क ग्रे", color: "#475569", border: "border-slate-600" },
-                          { name: "सॉफ्ट क्रीम", color: "#fef3c7", border: "border-amber-200" },
                         ].map((item) => (
                           <button
-                            key={item.color}
-                            onClick={() => setBgColor(item.color)}
+                            key={item.name}
+                            type="button"
                             title={item.name}
                             style={{ backgroundColor: item.color !== "transparent" ? item.color : undefined }}
-                            className={`h-7 rounded-lg border flex items-center justify-center transition-all cursor-pointer relative shadow-2xs ${
-                              item.color === "transparent"
-                                ? "bg-[radial-gradient(#cbd5e1_1px,transparent_1px)] [background-size:6px_6px] bg-slate-100"
-                                : ""
-                            } ${item.border} ${
-                              bgColor === item.color
-                                ? "ring-2 ring-blue-600 ring-offset-1 scale-105"
-                                : "hover:scale-105 opacity-90 hover:opacity-100"
+                            onClick={() => setBgColor(item.color)}
+                            className={`h-7 rounded-md border flex items-center justify-center transition-all cursor-pointer ${
+                              item.border
+                            } ${item.color === "transparent" ? "bg-slate-100" : ""} ${
+                              bgColor === item.color ? "ring-2 ring-blue-600 scale-105" : "hover:scale-105"
                             }`}
                           >
                             {bgColor === item.color && (
-                              <span
-                                className={`text-[11px] font-black leading-none ${
-                                  ["#ffffff", "#93c5fd", "#e2e8f0", "#fef08a", "#fef3c7", "transparent"].includes(item.color)
-                                    ? "text-slate-900"
-                                    : "text-white"
-                                }`}
-                              >
-                                ✓
-                              </span>
+                              <span className="text-[10px] font-black text-slate-800">✓</span>
                             )}
                           </button>
                         ))}
@@ -848,151 +975,361 @@ export default function PhotoDocEditorPage() {
                     </div>
                   </div>
 
-                  {/* 2. क्विक मोड्स */}
-                  <div>
-                    <span className="block mb-1 text-slate-800">क्विक टोन व फ़िल्टर:</span>
-                    <div className="grid grid-cols-3 gap-1.5">
-                      <button
-                        onClick={handleResetAdjustments}
-                        className={`py-1.5 px-1 rounded-lg border text-[11px] font-black cursor-pointer transition-all ${
-                          !isBw && brightness === 100 && contrast === 100
-                            ? "bg-slate-900 text-white border-slate-900"
-                            : "bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200"
-                        }`}
-                      >
-                        🎨 ओरिजिनल
-                      </button>
-                      <button
-                        onClick={() => setIsBw(!isBw)}
-                        className={`py-1.5 px-1 rounded-lg border text-[11px] font-black cursor-pointer transition-all ${
-                          isBw
-                            ? "bg-slate-900 text-white border-slate-900"
-                            : "bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200"
-                        }`}
-                      >
-                        ⚫ B&W
-                      </button>
-                      <button
-                        onClick={handleAutoEnhance}
-                        className="py-1.5 px-1 rounded-lg border bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-300 text-[11px] font-black cursor-pointer transition-all shadow-2xs"
-                      >
-                        ✨ ऑटो ग्लो
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* 3. कस्टम स्लाइडर्स */}
-                  <div className="space-y-2 pt-1 border-t border-slate-200">
-                    <div>
-                      <div className="flex justify-between text-[11px] mb-0.5">
-                        <span>ब्राइटनेस (उजाला):</span>
-                        <span>{brightness}%</span>
-                      </div>
+                  {/* 3. नाम व फोटो की तारीख (DOP) स्टैम्प */}
+                  <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+                    <label className="flex items-center gap-2 cursor-pointer select-none">
                       <input
-                        type="range"
-                        min="50"
-                        max="160"
-                        value={brightness}
-                        onChange={(e) => setBrightness(Number(e.target.value))}
-                        className="w-full accent-blue-600 cursor-pointer h-1.5"
+                        type="checkbox"
+                        checked={enableStamp}
+                        onChange={(e) => setEnableStamp(e.target.checked)}
+                        className="rounded border-slate-300 text-blue-600 w-4 h-4 cursor-pointer"
                       />
-                    </div>
+                      <span className="text-xs font-black text-slate-900">
+                        🏷️ नाम और तारीख (DOP) स्टैम्प जोड़ें
+                      </span>
+                    </label>
 
-                    <div>
-                      <div className="flex justify-between text-[11px] mb-0.5">
-                        <span>कॉन्ट्रास्ट (शार्पनेस):</span>
-                        <span>{contrast}%</span>
-                      </div>
-                      <input
-                        type="range"
-                        min="60"
-                        max="150"
-                        value={contrast}
-                        onChange={(e) => setContrast(Number(e.target.value))}
-                        className="w-full accent-blue-600 cursor-pointer h-1.5"
-                      />
-                    </div>
-
-                    {!isBw && (
-                      <div>
-                        <div className="flex justify-between text-[11px] mb-0.5">
-                          <span>सैचुरेशन (कलर टोन):</span>
-                          <span>{saturation}%</span>
+                    {enableStamp && (
+                      <div className="space-y-2 pt-1.5 border-t border-slate-200">
+                        <div>
+                          <label className="block text-[11px] font-black text-slate-700 mb-1">
+                            👤 अभ्यर्थी का नाम (Name):
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="उदा. AMIT SHARMA"
+                            value={candidateName}
+                            onChange={(e) => setCandidateName(e.target.value)}
+                            className="w-full border-2 border-slate-300 focus:border-blue-600 p-2 rounded-lg text-xs bg-white uppercase font-bold text-slate-900 outline-none"
+                          />
                         </div>
-                        <input
-                          type="range"
-                          min="0"
-                          max="180"
-                          value={saturation}
-                          onChange={(e) => setSaturation(Number(e.target.value))}
-                          className="w-full accent-blue-600 cursor-pointer h-1.5"
-                        />
+                        <div>
+                          <label className="block text-[11px] font-black text-slate-700 mb-1">
+                            📅 फोटो की तारीख (DOP / Date):
+                          </label>
+                          <input
+                            type="date"
+                            value={dopDate}
+                            onChange={(e) => setDopDate(e.target.value)}
+                            className="w-full border-2 border-slate-300 focus:border-blue-600 p-2 rounded-lg text-xs bg-white font-bold text-slate-900 outline-none"
+                          />
+                        </div>
+
+                        {/* 🔤 फॉन्ट साइज़ कंट्रोल स्लाइडर */}
+                        <div className="pt-1 border-t border-slate-200">
+                          <div className="flex justify-between text-[11px] mb-0.5">
+                            <span className="font-bold text-slate-700">🔤 नाम/तारीख का साइज़:</span>
+                            <span className="font-black text-blue-700">{stampFontSize} px</span>
+                          </div>
+                          <input
+                            type="range"
+                            min="11"
+                            max="26"
+                            value={stampFontSize}
+                            onChange={(e) => setStampFontSize(Number(e.target.value))}
+                            className="w-full accent-blue-600 cursor-pointer h-1.5"
+                          />
+                          <div className="flex justify-between text-[9px] text-slate-400 font-bold">
+                            <span>छोटा</span>
+                            <span>मध्यम</span>
+                            <span>बड़ा</span>
+                          </div>
+                        </div>
                       </div>
                     )}
                   </div>
 
-                  {/* 4. बॉर्डर व रोटेट */}
-                  <div className="grid grid-cols-2 gap-1.5 pt-1 border-t border-slate-200">
+                  {/* 4. फोटो बॉर्डर, रोटेट और ऑटो फिट */}
+                  <div className="grid grid-cols-3 gap-1.5">
                     <button
+                      type="button"
                       onClick={() => setHasBorder(!hasBorder)}
-                      className={`py-1.5 rounded-lg border text-xs font-black cursor-pointer transition-all ${
+                      className={`py-1.5 rounded-lg border text-[11px] font-black cursor-pointer transition-all ${
                         hasBorder
-                          ? "bg-blue-600 text-white border-blue-600"
+                          ? "bg-blue-600 text-white border-blue-600 shadow-2xs"
                           : "bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200"
                       }`}
                     >
-                      {hasBorder ? "✓ बॉर्डर लगा है" : "🔲 बॉर्डर जोड़ें"}
+                      {hasBorder ? "✓ बॉर्डर ऑन" : "🔲 पतला बॉर्डर"}
                     </button>
                     <button
+                      type="button"
                       onClick={() => setRotation((r) => (r + 90) % 360)}
-                      className="py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg border border-slate-300 font-black cursor-pointer text-xs"
+                      className="py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg border border-slate-300 font-black cursor-pointer text-[11px]"
                     >
                       🔄 घुमाएँ ({rotation}°)
                     </button>
-                  </div>
-
-                  {/* 5. टारगेट साइज़ */}
-                  <div className="pt-1 border-t border-slate-200">
-                    <label className="block mb-1 text-[11px]">डाउनलोड क्वालिटी / साइज़:</label>
-                    <div className="grid grid-cols-4 gap-1">
-                      {[20, 50, 100].map((kb) => (
-                        <button
-                          key={kb}
-                          onClick={() => setTargetKb(kb)}
-                          className={`py-1 rounded-lg border text-xs font-black cursor-pointer transition-all ${
-                            targetKb === kb
-                              ? "bg-slate-900 text-white border-slate-900"
-                              : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100"
-                          }`}
-                        >
-                          {kb} KB
-                        </button>
-                      ))}
-                      <button
-                        onClick={() => setTargetKb("hd")}
-                        className={`py-1 rounded-lg border text-xs font-black cursor-pointer transition-all ${
-                          targetKb === "hd"
-                            ? "bg-amber-600 text-white border-amber-600 shadow-xs"
-                            : "bg-amber-50 text-amber-900 border-amber-200 hover:bg-amber-100"
-                        }`}
-                      >
-                        ✨ HD
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setFitMode(fitMode === "fill" ? "fit" : "fill")}
+                      className={`py-1.5 rounded-lg border text-[11px] font-black cursor-pointer transition-all ${
+                        fitMode === "fill"
+                          ? "bg-emerald-600 text-white border-emerald-600 shadow-2xs"
+                          : "bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200"
+                      }`}
+                    >
+                      {fitMode === "fill" ? "✓ फिटेड (नो पट्टी)" : "🎯 ऑटो फिट"}
+                    </button>
                   </div>
                 </div>
               )}
 
               {/* 📄 डॉक्यूमेंट मोड टूल्स */}
               {editorMode === "document" && (
-                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-center space-y-2">
-                  <span className="text-2xl">📄</span>
-                  <p className="text-xs text-slate-600 font-bold">डॉक्यूमेंट मोड टूल्स</p>
-                  <p className="text-[11px] text-slate-500">
-                    व्हाइट बैकग्राउंड क्लीनर, टेक्स्ट शार्पनिंग और A4 ऑटो-सेटअप।
-                  </p>
+                <div className="space-y-3 text-xs font-bold text-slate-700">
+                  {/* 1. डॉक्यूमेंट साइज मानक */}
+                  <div className="p-2.5 bg-emerald-50/70 rounded-xl border border-emerald-200 space-y-1.5">
+                    <span className="text-emerald-950 font-black text-[11px]">📐 डॉक्यूमेंट साइज़ मानक:</span>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {[
+                        { id: "a4", label: "📄 A4 साइज" },
+                        { id: "4:6", label: "📑 4×6 साइज" },
+                        { id: "card", label: "💳 पहचान पत्र / पैन" },
+                        { id: "signature", label: "✍️ हस्ताक्षर (Sign)" },
+                      ].map((item) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => setPreset(item.id as AspectPreset)}
+                          className={`py-1.5 px-2 rounded-lg text-[11px] font-black border transition-all cursor-pointer ${
+                            preset === item.id
+                              ? "bg-emerald-600 text-white border-emerald-600 shadow-2xs"
+                              : "bg-white text-slate-800 border-slate-300 hover:bg-emerald-50"
+                          }`}
+                        >
+                          {item.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* 2. स्कैन फिल्टर्स */}
+                  <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+                    <span className="text-slate-900 font-black text-[11px]">✨ स्कैन व प्रिंट फिल्टर्स:</span>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setBrightness(125);
+                          setContrast(160);
+                          setSaturation(90);
+                          setIsBw(false);
+                        }}
+                        className="py-1.5 px-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 text-slate-800 text-[11px] font-black shadow-2xs cursor-pointer"
+                      >
+                        ⚡ ऑटो क्लीन
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setBrightness(120);
+                          setContrast(165);
+                          setSaturation(0);
+                          setIsBw(true);
+                        }}
+                        className="py-1.5 px-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 text-slate-800 text-[11px] font-black shadow-2xs cursor-pointer"
+                      >
+                        📄 B&W ज़ेरॉक्स
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setBrightness(105);
+                          setContrast(120);
+                          setSaturation(0);
+                          setIsBw(true);
+                        }}
+                        className="py-1.5 px-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 text-slate-800 text-[11px] font-black shadow-2xs cursor-pointer"
+                      >
+                        📑 ग्रे-स्केल
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setBrightness(100);
+                          setContrast(100);
+                          setSaturation(100);
+                          setIsBw(false);
+                        }}
+                        className="py-1.5 px-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 text-slate-800 text-[11px] font-black shadow-2xs cursor-pointer"
+                      >
+                        🎨 ओरिजिनल रंग
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* 3. रोटेशन व फ्लिप */}
+                  <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5">
+                    <span className="text-slate-900 font-black text-[11px]">🔄 ओरिएंटेशन व फ्लिप:</span>
+                    <div className="grid grid-cols-3 gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setRotation((r) => (r + 90) % 360)}
+                        className="py-1.5 bg-white hover:bg-slate-100 text-slate-800 rounded-lg border border-slate-300 font-black text-[11px] cursor-pointer"
+                      >
+                        🔄 90° घुमाएँ
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setFlipH((v) => !v)}
+                        className={`py-1.5 rounded-lg border font-black text-[11px] cursor-pointer transition-all ${
+                          flipH ? "bg-emerald-600 text-white border-emerald-600 shadow-2xs" : "bg-white text-slate-800 border-slate-300"
+                        }`}
+                      >
+                        ↔️ मिरर H
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setFlipV((v) => !v)}
+                        className={`py-1.5 rounded-lg border font-black text-[11px] cursor-pointer transition-all ${
+                          flipV ? "bg-emerald-600 text-white border-emerald-600 shadow-2xs" : "bg-white text-slate-800 border-slate-300"
+                        }`}
+                      >
+                        ↕️ फ्लिप V
+                      </button>
+                    </div>
+                  </div>
                 </div>
               )}
+
+              {/* 🎨 टोन एडजस्टमेंट्स: ऑटो vs मैनुअल (एक समय पर केवल एक सक्रिय) */}
+              <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+                <div className="flex items-center justify-between pb-1 border-b border-slate-200">
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTuneMode("manual");
+                        setIsAutoEnhanced(false);
+                      }}
+                      className={`text-[11px] px-2.5 py-1 rounded-lg font-black border transition-all cursor-pointer ${
+                        tuneMode === "manual"
+                          ? "bg-blue-600 text-white border-blue-600 shadow-2xs"
+                          : "bg-white text-slate-700 border-slate-300 hover:bg-slate-100"
+                      }`}
+                    >
+                      🎚️ मैनुअल
+                    </button>
+                    <button
+                      type="button"
+                      onClick={toggleAutoEnhance}
+                      className={`text-[11px] px-2.5 py-1 rounded-lg font-black border transition-all cursor-pointer ${
+                        tuneMode === "auto"
+                          ? "bg-amber-500 text-white border-amber-600 shadow-2xs"
+                          : "bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100"
+                      }`}
+                    >
+                      {tuneMode === "auto" ? "✓ ऑटो टोन ऑन" : "✨ ऑटो टोन"}
+                    </button>
+                  </div>
+                  <span className="text-[10px] font-bold text-slate-500">
+                    {tuneMode === "auto" ? "ऑटो एक्टिव" : "मैनुअल एक्टिव"}
+                  </span>
+                </div>
+
+                <div className={`space-y-2 transition-all ${tuneMode === "auto" ? "opacity-40 pointer-events-none" : "opacity-100"}`}>
+                  <div>
+                    <div className="flex justify-between text-[11px] mb-0.5">
+                      <span className="font-bold text-slate-700">☀️ ब्राइटनेस (उजाला):</span>
+                      <span className="font-black text-blue-700">{brightness}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="60"
+                      max="160"
+                      disabled={tuneMode === "auto"}
+                      value={brightness}
+                      onChange={(e) => handleManualSliderChange(setBrightness, Number(e.target.value))}
+                      className="w-full accent-blue-600 cursor-pointer h-1.5"
+                    />
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between text-[11px] mb-0.5">
+                      <span className="font-bold text-slate-700">🌓 कॉन्ट्रास्ट (शार्पनेस):</span>
+                      <span className="font-black text-blue-700">{contrast}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="60"
+                      max="160"
+                      disabled={tuneMode === "auto"}
+                      value={contrast}
+                      onChange={(e) => handleManualSliderChange(setContrast, Number(e.target.value))}
+                      className="w-full accent-blue-600 cursor-pointer h-1.5"
+                    />
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between text-[11px] mb-0.5">
+                      <span className="font-bold text-slate-700">🌈 सैचुरेशन (रंग गाढ़ा):</span>
+                      <span className="font-black text-blue-700">{saturation}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="200"
+                      disabled={tuneMode === "auto"}
+                      value={saturation}
+                      onChange={(e) => handleManualSliderChange(setSaturation, Number(e.target.value))}
+                      className="w-full accent-blue-600 cursor-pointer h-1.5"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* 🎯 डाउनलोड क्वालिटी / KB साइज़ कंट्रोल (कॉमन) */}
+              <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+                <label className="block text-[11px] font-black text-slate-800">
+                  🎯 डाउनलोड क्वालिटी व KB साइज़:
+                </label>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setKbMode("hd")}
+                    className={`py-1.5 rounded-lg border text-xs font-black cursor-pointer transition-all ${
+                      kbMode === "hd"
+                        ? "bg-slate-900 text-white border-slate-900 shadow-2xs"
+                        : "bg-white text-slate-700 border-slate-300"
+                    }`}
+                  >
+                    ⭐ Full HD (मूल)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setKbMode("custom")}
+                    className={`py-1.5 rounded-lg border text-xs font-black cursor-pointer transition-all ${
+                      kbMode === "custom"
+                        ? "bg-blue-600 text-white border-blue-600 shadow-2xs"
+                        : "bg-white text-slate-700 border-slate-300"
+                    }`}
+                  >
+                    🎯 कस्टम KB
+                  </button>
+                </div>
+
+                <div className={`space-y-1 transition-opacity ${kbMode === "hd" ? "opacity-40 pointer-events-none" : "opacity-100"}`}>
+                  <div className="flex justify-between text-[11px]">
+                    <span className="font-bold text-slate-600">टारगेट साइज़:</span>
+                    <span className="font-black text-blue-700">{customKb} KB</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="10"
+                    max="800"
+                    step="5"
+                    disabled={kbMode === "hd"}
+                    value={customKb}
+                    onChange={(e) => setCustomKb(Number(e.target.value))}
+                    className="w-full accent-blue-600 cursor-pointer h-1.5"
+                  />
+                  <div className="flex justify-between text-[9px] text-slate-400 font-bold">
+                    <span>10 KB</span>
+                    <span>400 KB</span>
+                    <span>800 KB</span>
+                  </div>
+                </div>
+              </div>
 
               {/* डाउनलोड बटन्स */}
               <div className="pt-2 space-y-2 border-t border-slate-200">
@@ -1001,7 +1338,7 @@ export default function PhotoDocEditorPage() {
                   className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 active:scale-98 text-white font-black text-xs sm:text-sm rounded-xl shadow-md transition-all flex items-center justify-center gap-1.5 cursor-pointer"
                 >
                   <span>📥</span>
-                  <span>JPG डाउनलोड ({targetKb === "hd" ? "Full HD" : targetKb + " KB"})</span>
+                  <span>JPG डाउनलोड ({kbMode === "hd" ? "Full HD" : `${customKb} KB`})</span>
                 </button>
 
                 <div className="grid grid-cols-2 gap-2">
@@ -1018,7 +1355,7 @@ export default function PhotoDocEditorPage() {
                     className="py-2 bg-slate-800 hover:bg-slate-900 active:scale-98 text-white font-black text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-1 cursor-pointer"
                   >
                     <span>🔗</span>
-                    <span>शेयर करें</span>
+                    <span>शेयर</span>
                   </button>
                 </div>
               </div>

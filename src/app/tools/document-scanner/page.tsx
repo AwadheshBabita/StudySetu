@@ -431,7 +431,11 @@ export default function DocumentScannerPage() {
         if (!srcCtx) return;
         srcCtx.drawImage(img, 0, 0);
 
-        const slices = 80;
+        // 80 स्लाइस की जगह माइक्रो-स्लाइसिंग (1 से 1.5 पिक्सल की बारीक पट्टियां ताकि सीढ़ी जैसा कट न बने)
+        sCtx.imageSmoothingEnabled = true;
+        sCtx.imageSmoothingQuality = "high";
+
+        const slices = Math.min(Math.round(targetH), 450);
         for (let i = 0; i < slices; i++) {
           const t1 = i / slices;
           const t2 = (i + 1) / slices;
@@ -447,7 +451,7 @@ export default function DocumentScannerPage() {
 
           sCtx.save();
           sCtx.beginPath();
-          sCtx.rect(0, destY1, targetW, destH + 1.5);
+          sCtx.rect(0, destY1, targetW, destH + 0.75);
           sCtx.clip();
 
           const sliceAngle = Math.atan2(rightY1 - leftY1, rightX1 - leftX1);
@@ -695,13 +699,55 @@ export default function DocumentScannerPage() {
         const gray = 0.299 * r + 0.587 * g + 0.114 * b;
         r = gray; g = gray; b = gray;
       } else if (mode === "bw") {
+        // असली लेज़र ज़ेरॉक्स: टेक्स्ट को गहरा पकड़ना, बारीक अक्षर धुलने न पाएँ
         const gray = 0.299 * r + 0.587 * g + 0.114 * b;
-        const bw = gray > 140 ? 255 : 0;
-        r = bw; g = bw; b = bw;
+
+        let xerox;
+        if (gray >= 185) {
+          // केवल कागज़ का हल्का हिस्सा और परछाई पूरी तरह सफेद होगी
+          xerox = 255;
+        } else if (gray <= 115) {
+          // आधार कार्ड/रसीद का टेक्स्ट, मोहर और बारकोड गाढ़ा लेज़र ब्लैक बनेगा
+          xerox = Math.round(gray * 0.35);
+        } else {
+          // 115 से 185 के बीच स्मूथ कंट्रास्ट रैम्प (ताकि बारीक फॉन्ट न कटे)
+          const t = (gray - 115) / 70;
+          xerox = Math.round(40 + t * t * 215);
+        }
+
+        r = xerox; g = xerox; b = xerox;
       } else if (mode === "magic") {
-        r = Math.min(255, r * 1.1 + 10);
-        g = Math.min(255, g * 1.1 + 10);
-        b = Math.min(255, b * 1.1 + 10);
+        // संतुलित CamScanner टोनल कर्व (बिना ओवर-एक्सपोजर और बिना स्याही फैले)
+        const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+
+        // स्मूथ नॉर्मलाइज़्ड ल्युमिनेंस कर्व (0 से 1)
+        const norm = lum / 255;
+
+        // नेचुरल कर्व: हल्के शेड्स क्लीन वाइट होंगे, टेक्स्ट बिना फैले गहरा रहेगा
+        // बैकग्राउंड लिफ्ट (1.18x) + मिड-टोन रिटेंशन ताकि बारीक अक्षर न मिटें
+        let enhanced;
+        if (norm > 0.55) {
+          // बैकग्राउंड को बिना ब्लीच किए जेंटल वाइट बनाना
+          enhanced = 0.55 + Math.pow((norm - 0.55) / 0.45, 0.85) * 0.45;
+          enhanced = Math.min(1, enhanced * 1.08);
+        } else {
+          // टेक्स्ट को सिर्फ 15% गहरा करना ताकि फॉन्ट की डिटेलिंग और गोलाई बरकरार रहे
+          enhanced = Math.pow(norm / 0.55, 1.22) * 0.55;
+        }
+
+        const targetLum = enhanced * 255;
+        const ratio = targetLum / (lum || 1);
+
+        // कलर कंट्रास्ट को बैलेंस रखना
+        r = Math.min(255, Math.max(0, r * ratio));
+        g = Math.min(255, Math.max(0, g * ratio));
+        b = Math.min(255, Math.max(0, b * ratio));
+
+        // हल्का सा कलर वाइब्रेंसी टच (1.1x) ताकि नीली स्याही और स्टांप नेचुरल दिखें
+        const postLum = 0.299 * r + 0.587 * g + 0.114 * b;
+        r = Math.min(255, Math.max(0, postLum + (r - postLum) * 1.12));
+        g = Math.min(255, Math.max(0, postLum + (g - postLum) * 1.12));
+        b = Math.min(255, Math.max(0, postLum + (b - postLum) * 1.12));
       }
 
       if (satVal !== 0 && mode !== "bw" && mode !== "grayscale") {

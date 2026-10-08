@@ -1,29 +1,26 @@
-import { Metadata } from "next";
-import React from "react";
+import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "स्मार्ट डॉक्यूमेंट स्कैनर (A4 PDF & Image Scanner) - ExamSewa",
-  description: "मोबाइल या कैमरे से खींचे गए कागज़, मार्कशीट, फॉर्म और आधार/पैन कार्ड को सीधा करें, 4-कॉर्नर पर्सपेक्टिव क्रॉप करें, टेक्स्ट साफ करें और 1-क्लिक में A4 PDF व JPG डाउनलोड करें। 100% फ्री और सुरक्षित।",
+  title: "Smart Document Scanner Online - मोबाइल फोटो को साफ़ स्कैनर बनाएं | ExamSewa",
+  description: "मोबाइल से खींची कागज़ात की फोटो साफ़ करें। 4-कॉर्नर पर्सपेक्टिव क्रॉप, शैडो रिमूवल और मैजिक कलर व्हाइट बैलेंस से साधारण फोटो को बनाएं क्रिस्प HD PDF या JPG डॉक्यूमेंट।",
   keywords: [
-    "online document scanner",
-    "smart document scanner online",
-    "perspective crop document online",
-    "photo to pdf scanner a4",
-    "mobile scan to clean pdf",
-    "camscanner alternative online free",
-    "document background clean",
-    "examsewa document scanner"
+    "document scanner online",
+    "mobile photo to scan copy",
+    "magic color scanner",
+    "4 corner perspective crop online",
+    "remove shadow from paper photo",
+    "marksheet clear scanner",
+    "online document enhancer tool",
+    "clean yellow paper to white document"
   ],
   alternates: {
     canonical: "https://examsewa.online/tools/document-scanner",
   },
   openGraph: {
-    title: "स्मार्ट डॉक्यूमेंट स्कैनर - 4-कॉर्नर क्रॉप व A4 PDF मेकर | ExamSewa",
-    description: "तिरछे कागज़ को सीधा करें, टेक्स्ट उभारें, बैकग्राउंड साफ करें और हाई-क्वालिटी A4 PDF या JPG डाउनलोड करें।",
+    title: "Smart Document Scanner Online - मोबाइल फोटो को साफ़ स्कैनर बनाएं | ExamSewa",
+    description: "मोबाइल से खींची कागज़ात की फोटो साफ़ करें। 4-कॉर्नर पर्सपेक्टिव क्रॉप और मैजिक कलर से साधारण फोटो को बनाएं क्रिस्प HD डॉक्यूमेंट।",
     url: "https://examsewa.online/tools/document-scanner",
-    siteName: "ExamSewa",
     type: "website",
-    locale: "hi_IN",
   },
 };
 
@@ -33,82 +30,72 @@ export default function DocumentScannerLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col">
-      {/* मुख्य वर्किंग टूल (page.tsx सुरक्षित रहेगा) */}
-      <div className="flex-1">{children}</div>
+    <>
+      {children}
 
-      {/* गूगल सर्च रैंकिंग के लिए SEO व गाइड सेक्शन */}
-      <section className="bg-white border-t border-slate-200 mt-12 py-12 px-4 sm:px-6">
-        <div className="max-w-5xl mx-auto space-y-10 text-slate-700">
-          
-          {/* मुख्य हेडिंग */}
-          <div className="text-center max-w-3xl mx-auto">
-            <h2 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
-              स्मार्ट ऑनलाइन डॉक्यूमेंट स्कैनर और A4 PDF कनवर्टर
-            </h2>
-            <p className="text-sm sm:text-base text-slate-600 mt-3 leading-relaxed">
-              ExamSewa का स्मार्ट डॉक्यूमेंट स्कैनर मोबाइल या कैमरे से खींचे गए किसी भी तिरछे कागज़, मार्कशीट, 
-              प्रमाणपत्र, आधार कार्ड या फॉर्म को ऑटो-डिटेक्ट करके सीधा करता है और क्रिस्टल क्लियर A4 PDF या JPG में बदलता है।
-            </p>
-          </div>
+      {/* SEO Guide Article Container (आईडी कार्ड जॉइनर जैसा फुल रिच कंटेंट) */}
+      <section className="w-full max-w-4xl mx-auto px-4 py-10 space-y-8 text-slate-800 border-t border-slate-200 mt-8 bg-white/70 rounded-3xl mb-12 shadow-xs">
+        <article className="prose prose-slate max-w-none text-xs sm:text-sm leading-relaxed space-y-5">
+          <h1 className="text-lg sm:text-xl font-black text-slate-900 border-b pb-2">
+            Smart Document Scanner: मोबाइल से खींची गई फोटो को ओरिजिनल स्कैनर जैसा साफ़ कैसे बनाएं?
+          </h1>
+          <p className="text-slate-600">
+            जब हम स्मार्टफोन के कैमरे से मार्कशीट, जाति/आय प्रमाण पत्र, बैंक पासबुक या किसी कागज़ात की तस्वीर खींचते हैं, तो उसमें अक्सर हाथ या मोबाइल की परछाई (Shadow), कमरे की लाइट का पीलापन, और तिरछापन (Perspective Distortion) आ जाता है। ऐसे दस्तावेज़ जब किसी सरकारी परीक्षा फॉर्म या जॉब पोर्टल पर अपलोड किए जाते हैं, तो आयोग उन्हें 'धुंधला या अपठनीय' कहकर निरस्त कर देता है। ExamSewa का <strong>Smart Document Scanner</strong> बिना किसी हार्डवेयर स्कैनर मशीन के आपकी मोबाइल फोटो को फ्लैटबेड स्कैनर जैसा बिल्कुल सीधा, क्रिस्प और दूध जैसा साफ़ सफेद बना देता है।
+          </p>
 
-          {/* मुख्य फीचर्स ग्रिड */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4">
-            <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200/80">
-              <div className="text-2xl mb-2">📐</div>
-              <h3 className="font-bold text-slate-900 text-base mb-1">4-कॉर्नर पर्सपेक्टिव क्रॉप</h3>
-              <p className="text-xs text-slate-600 leading-relaxed">
-                कागज़ चाहे किसी भी कोण से खींचा गया हो, चारों कोनों को आसानी से ड्रैग करके पेज को बिल्कुल सीधा और समतल बनाया जा सकता है।
+          <h2 className="text-sm sm:text-base font-bold text-slate-900 pt-2">
+            इस टूल की प्रमुख तकनीकी विशेषताएँ:
+          </h2>
+          <ul className="list-disc pl-5 space-y-2 text-slate-700">
+            <li><strong>4-कॉर्नर पर्सपेक्टिव क्रॉप (Perspective Correction):</strong> यदि आपने बिस्तर या मेज पर रखकर दस्तावेज़ की तिरछी तस्वीर ली है, तो चारों कोनों पर दिए गए बिंदुओं को खींचकर आप पूरे कागज़ को सामने से देखा गया एकदम सीधा और समतल बना सकते हैं।</li>
+            <li><strong>मैजिक कलर व्हाइट बैलेंस (Magic Color Filter):</strong> कागज़ पर जमी धूल, असमान रोशनी और पीलेपन को हटाकर बैकग्राउंड को पूरी तरह क्लीन व्हाइट करता है ताकि प्रिंटिंग में स्याही की बर्बादी न हो।</li>
+            <li><strong>इंक कंट्रास्ट और शार्पनेस बूस्ट:</strong> हल्के नीले या काले पेन से लिखे अक्षरों, रबर स्टाम्प की मुहर और अधिकारियों के हस्ताक्षरों को गहरा और स्पष्ट रूप से पढ़ने योग्य बनाता है।</li>
+            <li><strong>मल्टीपल आउटपुट मोड्स:</strong> आवश्यकतानुसार ओरिजिनल, मैजिक कलर (Color Enhanced), ग्रेस्केल (Black & White), या हाई-कंट्रास्ट मोड में दस्तावेज़ को प्रोसेस करें।</li>
+            <li><strong>HD PDF व JPG एक्सपोर्ट:</strong> साफ़ किए गए दस्तावेज़ को बिना किसी वॉटरमार्क के सीधे हाई-रेजोल्यूशन PDF या JPG फॉर्मेट में डाउनलोड करें।</li>
+          </ul>
+
+          <h2 className="text-sm sm:text-base font-bold text-slate-900 pt-2">
+            स्टेप-बाय-स्टेप उपयोग का तरीका (How to Use):
+          </h2>
+          <ol className="list-decimal pl-5 space-y-1.5 text-slate-700">
+            <li>ऊपर दिए गए बॉक्स में अपने मोबाइल से ली गई डॉक्यूमेंट या मार्कशीट की फोटो अपलोड करें।</li>
+            <li>स्क्रीन पर दिखने वाले 4 नीले कोनों (Corner Points) को पकड़कर अपने कागज़ के चारों किनारों पर ठीक से सेट करें।</li>
+            <li>'Perspective Crop' पर क्लिक करें—कागज़ अपने आप घूमकर एकदम सीधा और चौकोर हो जाएगा।</li>
+            <li>नीचे दिए गए फिल्टर विकल्पों में से 'Magic Color' या 'B&W' चुनें जिससे बैकग्राउंड साफ़ और लिखावट गहरी हो जाए।</li>
+            <li>दस्तावेज़ की स्पष्टता जाँचने के बाद 'Download PDF' या 'Download JPG' बटन पर क्लिक करके फाइल सेव करें।</li>
+          </ol>
+
+          <h2 className="text-sm sm:text-base font-bold text-slate-900 pt-3">
+            अक्सर पूछे जाने वाले सवाल (FAQs)
+          </h2>
+          <div className="space-y-3 pt-1">
+            <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+              <h3 className="font-bold text-slate-900 text-xs sm:text-sm">
+                क्या इसके लिए मोबाइल में कोई भारी ऐप डाउनलोड करना होगा?
+              </h3>
+              <p className="text-slate-600 text-xs mt-1 leading-relaxed">
+                नहीं, यह टूल सीधे आपके मोबाइल या कंप्यूटर के ब्राउज़र (Chrome, Safari आदि) में चलता है। किसी ऐप या सॉफ्टवेयर इंस्टॉलेशन की कोई आवश्यकता नहीं है।
               </p>
             </div>
-
-            <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200/80">
-              <div className="text-2xl mb-2">⚡</div>
-              <h3 className="font-bold text-slate-900 text-base mb-1">मैजिक टेक्स्ट एन्हांसमेंट</h3>
-              <p className="text-xs text-slate-600 leading-relaxed">
-                कागज़ की परछाइयों (Shadows) को हटाकर अक्षरों को गहरा और बैकग्राउंड को साफ़ सफ़ेद करता है, जिससे प्रिंटिंग साफ़ निकलती है।
+            <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+              <h3 className="font-bold text-slate-900 text-xs sm:text-sm">
+                क्या स्कैन किए गए दस्तावेज़ से संवेदनशील सरकारी डेटा लीक होने का खतरा है?
+              </h3>
+              <p className="text-slate-600 text-xs mt-1 leading-relaxed">
+                बिल्कुल नहीं। यह टूल पूरी तरह 'क्लाइंट-साइड' (Client-side Canvas) तकनीक पर कार्य करता है। आपकी मार्कशीट या पहचान पत्र की फोटो आपके फोन/कंप्यूटर से बाहर किसी सर्वर पर कभी नहीं जाती।
               </p>
             </div>
-
-            <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200/80">
-              <div className="text-2xl mb-2">🔒</div>
-              <h3 className="font-bold text-slate-900 text-base mb-1">100% प्राइवेट और सुरक्षित</h3>
-              <p className="text-xs text-slate-600 leading-relaxed">
-                आपकी फ़ाइलें किसी भी सर्वर पर अपलोड नहीं होती हैं। सारा काम आपके फ़ोन या कंप्यूटर के ब्राउज़र में ही प्रोसेस होता है।
+            <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+              <h3 className="font-bold text-slate-900 text-xs sm:text-sm">
+                क्या स्कैन करने के बाद बारकोड और क्यूआर कोड (QR Code) काम करेंगे?
+              </h3>
+              <p className="text-slate-600 text-xs mt-1 leading-relaxed">
+                हाँ, मैजिक कलर फिल्टर बारकोड और क्यूआर कोड के कंट्रास्ट को और स्पष्ट कर देता है जिससे सरकारी स्कैनर उन्हें तुरंत पढ़ लेते हैं।
               </p>
             </div>
           </div>
-
-          {/* उपयोग करने का तरीका */}
-          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-6 sm:p-8">
-            <h3 className="text-lg font-bold text-slate-900 mb-4">
-              स्मार्ट स्कैनर का उपयोग कैसे करें? (Step-by-Step Guide)
-            </h3>
-            <ol className="list-decimal list-inside space-y-2.5 text-xs sm:text-sm text-slate-600">
-              <li><strong className="text-slate-800">फ़ाइल चुनें:</strong> अपने मोबाइल या कंप्यूटर से किसी भी दस्तावेज़, फॉर्म या मार्कशीट की फ़ोटो अपलोड करें।</li>
-              <li><strong className="text-slate-800">कोने सेट करें:</strong> स्क्रीन पर दिखने वाले 4 गोलों (Corner Points) को खींचकर कागज़ के चारों कोनों पर सेट करें।</li>
-              <li><strong className="text-slate-800">क्रॉप और सीधा करें:</strong> '📐 काग़ज़ क्रॉप करें' बटन पर क्लिक करें। आपका दस्तावेज़ सीधा हो जाएगा।</li>
-              <li><strong className="text-slate-800">फ़िल्टर व साइज़:</strong> अपनी ज़रूरत के अनुसार B&W या मैजिक कलर चुनें और A4 PDF या HD JPG में डाउनलोड करें।</li>
-            </ol>
-          </div>
-
-          {/* FAQ (गूगल रिच स्निपेट्स के लिए) */}
-          <div className="space-y-4">
-            <h3 className="text-lg font-bold text-slate-900">अक्सर पूछे जाने वाले सवाल (FAQ)</h3>
-            <div className="space-y-3">
-              <div className="border border-slate-200 rounded-xl p-4 bg-white">
-                <h4 className="font-bold text-sm text-slate-800 mb-1">क्या यह टूल पूरी तरह से मुफ़्त है?</h4>
-                <p className="text-xs text-slate-600">हाँ, ExamSewa का यह डॉक्यूमेंट स्कैनर सभी छात्रों और यूज़र्स के लिए बिना किसी वाटरमार्क के 100% मुफ़्त है।</p>
-              </div>
-              <div className="border border-slate-200 rounded-xl p-4 bg-white">
-                <h4 className="font-bold text-sm text-slate-800 mb-1">क्या मैं सीधे A4 साइज़ में PDF निकाल सकता हूँ?</h4>
-                <p className="text-xs text-slate-600">हाँ, यह टूल आपके दस्तावेज़ को स्टैंडर्ड A4 माप (Portrait या Landscape) में सटीक मार्जिन के साथ PDF बनाकर देता है।</p>
-              </div>
-            </div>
-          </div>
-
-        </div>
+        </article>
       </section>
-    </div>
+    </>
   );
 }
