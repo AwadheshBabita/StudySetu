@@ -635,14 +635,11 @@ export default function PhotoDocEditorPage() {
     let data = "";
 
     if (kbMode === "hd") {
-      // Full HD: 100% क्रिस्टल क्लियर ओरिजिनल आउटपुट
+      // Full HD: 100% ओरिजिनल क्रिस्टल क्लियर आउटपुट
       data = originalCanvas.toDataURL("image/jpeg", 0.99);
     } else {
-      // स्मार्ट शार्प कस्टम KB इंजन (टारगेट KB की गारंटी + शार्पनेस)
+      // 100% स्टेबल और प्रेडिक्टेबल कस्टम KB कंप्रेशन इंजन
       const targetBytes = customKb * 1024;
-      let bestData = "";
-      let currentCanvas = originalCanvas;
-
       const getBlob = (cvs, q) => new Promise(res => cvs.toBlob(res, "image/jpeg", q));
       const blobToDataUrl = (b) => new Promise(res => {
         const reader = new FileReader();
@@ -650,41 +647,42 @@ export default function PhotoDocEditorPage() {
         reader.readAsDataURL(b);
       });
 
-      // 4 स्टेप्स तक स्मार्ट स्केलिंग (ताकि पिक्सल सिर्फ जरूरत पड़ने पर ही और हाई-क्वालिटी में घटें)
-      for (let pass = 0; pass < 4; pass++) {
-        let minQ = 0.20;
-        let maxQ = 0.95;
-        let passBestData = "";
-        let passBestSize = 0;
+      let currentCanvas = originalCanvas;
+      let finalBlob = null;
 
-        for (let i = 0; i < 7; i++) {
-          const midQ = (minQ + maxQ) / 2;
-          const blob = await getBlob(currentCanvas, midQ);
-          if (!blob) break;
+      // अधिकतम 3 सुरक्षा चरण (सटीक पिक्सल नियंत्रण)
+      for (let step = 0; step < 3; step++) {
+        let low = 0.05;
+        let high = 0.98;
+        let bestUnderTarget = null;
+        let closestOverTarget = null;
 
-          const size = blob.size;
-          if (size <= targetBytes) {
-            if (size > passBestSize) {
-              passBestSize = size;
-              passBestData = await blobToDataUrl(blob);
-            }
-            minQ = midQ; // और शार्प क्वालिटी की कोशिश
+        // 12-स्टेप बाइनरी सर्च (दशमलव के सटीक स्तर तक क्वालिटी मैपिंग)
+        for (let i = 0; i < 12; i++) {
+          const mid = (low + high) / 2;
+          const b = await getBlob(currentCanvas, mid);
+          if (!b) break;
+
+          if (b.size <= targetBytes) {
+            bestUnderTarget = b;
+            low = mid; // और बेहतर क्वालिटी ढूँढें जो टारगेट के अंदर रहे
           } else {
-            maxQ = midQ;
+            closestOverTarget = b;
+            high = mid; // साइज़ टारगेट से बड़ा है, क्वालिटी कम करें
           }
         }
 
-        if (passBestData) {
-          bestData = passBestData;
-          break; // टारगेट KB के अंदर सबसे शार्प वर्शन मिल गया!
+        if (bestUnderTarget) {
+          finalBlob = bestUnderTarget;
+          break; // सटीक और सुरक्षित साइज़ मिल गया
         }
 
-        // अगर सबसे कम क्वालिटी पर भी साइज़ बड़ा है (जैसे 10 KB या 20 KB का टारगेट),
-        // तो हाई-क्वालिटी एंटी-एलियासिंग के साथ हल्का सा रीसाइज करें
-        const scaleFactor = 0.85;
+        // यदि न्यूनतम क्वालिटी (0.05) पर भी साइज़ टारगेट से बड़ा रह जाए (जैसे 10-20 KB),
+        // तो हाई-क्वालिटी एंटी-एलियासिंग के साथ नियंत्रित रिसाइजिंग करें
+        const scale = 0.90;
         const nextCvs = document.createElement("canvas");
-        nextCvs.width = Math.max(120, Math.round(currentCanvas.width * scaleFactor));
-        nextCvs.height = Math.max(120, Math.round(currentCanvas.height * scaleFactor));
+        nextCvs.width = Math.max(150, Math.round(currentCanvas.width * scale));
+        nextCvs.height = Math.max(150, Math.round(currentCanvas.height * scale));
         const ctx = nextCvs.getContext("2d");
         if (ctx) {
           ctx.imageSmoothingEnabled = true;
@@ -692,11 +690,17 @@ export default function PhotoDocEditorPage() {
           ctx.drawImage(currentCanvas, 0, 0, nextCvs.width, nextCvs.height);
           currentCanvas = nextCvs;
         } else {
+          finalBlob = closestOverTarget;
           break;
         }
       }
 
-      data = bestData || currentCanvas.toDataURL("image/jpeg", 0.5);
+      if (finalBlob) {
+        data = await blobToDataUrl(finalBlob);
+      } else {
+        const fallback = await getBlob(currentCanvas, 0.2);
+        data = fallback ? await blobToDataUrl(fallback) : currentCanvas.toDataURL("image/jpeg", 0.5);
+      }
     }
 
     data = setJpgDpi300(data);
@@ -712,26 +716,72 @@ export default function PhotoDocEditorPage() {
     const canvas = await makeFinalCanvas();
     if (!canvas) return;
 
-    const data = canvas.toDataURL("image/jpeg", 0.95);
-    const w = window.open("", "_blank");
-    if (!w) return;
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.95);
+    const base64Data = dataUrl.split(",")[1];
+    const binaryImg = atob(base64Data);
+    const imgLen = binaryImg.length;
+    const imgBytes = new Uint8Array(imgLen);
+    for (let i = 0; i < imgLen; i++) {
+      imgBytes[i] = binaryImg.charCodeAt(i);
+    }
 
-    w.document.write(`
-      <html>
-        <head>
-          <title>ExamSewa_${fileName}.pdf</title>
-          <style>
-            @page { size: auto; margin: 0; }
-            body { margin: 0; display: flex; align-items: center; justify-content: center; height: 100vh; background: #fff; }
-            img { max-width: 100%; max-height: 100%; object-fit: contain; }
-          </style>
-        </head>
-        <body>
-          <img src="${data}" onload="window.print(); window.close();" />
-        </body>
-      </html>
-    `);
-    w.document.close();
+    // PDF पेज डायमेंशन (72 DPI पॉइंट्स के अनुसार)
+    const ptWidth = Math.round((canvas.width * 72) / 300);
+    const ptHeight = Math.round((canvas.height * 72) / 300);
+
+    // स्टैंडर्ड PDF 1.4 बाइनरी ऑब्जेक्ट्स निर्माण
+    const header = "%PDF-1.4\n";
+    const obj1 = "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n";
+    const obj2 = "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n";
+    const obj3 = `3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${ptWidth} ${ptHeight}] /Resources << /XObject << /Im1 4 0 R >> >> /Contents 5 0 R >>\nendobj\n`;
+    const obj4Header = `4 0 obj\n<< /Type /XObject /Subtype /Image /Width ${canvas.width} /Height ${canvas.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${imgLen} >>\nstream\n`;
+    const obj4Footer = "\nendstream\nendobj\n";
+    const contentStream = `q ${ptWidth} 0 0 ${ptHeight} 0 0 cm /Im1 Do Q`;
+    const obj5 = `5 0 obj\n<< /Length ${contentStream.length} >>\nstream\n${contentStream}\nendstream\nendobj\n`;
+
+    const enc = new TextEncoder();
+    const pHeader = enc.encode(header);
+    const pObj1 = enc.encode(obj1);
+    const pObj2 = enc.encode(obj2);
+    const pObj3 = enc.encode(obj3);
+    const pObj4H = enc.encode(obj4Header);
+    const pObj4F = enc.encode(obj4Footer);
+    const pObj5 = enc.encode(obj5);
+
+    // XREF टेबल ऑफसेट्स की गणना
+    let offset = pHeader.length;
+    const offset1 = offset; offset += pObj1.length;
+    const offset2 = offset; offset += pObj2.length;
+    const offset3 = offset; offset += pObj3.length;
+    const offset4 = offset; offset += (pObj4H.length + imgLen + pObj4F.length);
+    const offset5 = offset; offset += pObj5.length;
+
+    const pad = (n) => String(n).padStart(10, "0");
+    const xref = `xref\n0 6\n0000000000 65535 f \n${pad(offset1)} 00000 n \n${pad(offset2)} 00000 n \n${pad(offset3)} 00000 n \n${pad(offset4)} 00000 n \n${pad(offset5)} 00000 n \ntrailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${offset}\n%%EOF`;
+    const pXref = enc.encode(xref);
+
+    const pdfBlob = new Blob([
+      pHeader,
+      pObj1,
+      pObj2,
+      pObj3,
+      pObj4H,
+      imgBytes,
+      pObj4F,
+      pObj5,
+      pXref
+    ], { type: "application/pdf" });
+
+    const url = URL.createObjectURL(pdfBlob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `ExamSewa_${fileName || "photo"}_${preset || "crop"}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, 1000);
   };
 
   const handleShare = async () => {

@@ -699,22 +699,22 @@ export default function DocumentScannerPage() {
         const gray = 0.299 * r + 0.587 * g + 0.114 * b;
         r = gray; g = gray; b = gray;
       } else if (mode === "bw") {
-        // असली लेज़र ज़ेरॉक्स: टेक्स्ट को गहरा पकड़ना, बारीक अक्षर धुलने न पाएँ
+        // Photo-Crop स्टाइल स्मूथ नेचुरल ज़ेरॉक्स (बिना पिक्सल फटे या पैच बने)
         const gray = 0.299 * r + 0.587 * g + 0.114 * b;
-
-        let xerox;
-        if (gray >= 185) {
-          // केवल कागज़ का हल्का हिस्सा और परछाई पूरी तरह सफेद होगी
-          xerox = 255;
-        } else if (gray <= 115) {
-          // आधार कार्ड/रसीद का टेक्स्ट, मोहर और बारकोड गाढ़ा लेज़र ब्लैक बनेगा
-          xerox = Math.round(gray * 0.35);
+        
+        // नेचुरल फोटोकॉपी टोनल कंट्रास्ट (गाढ़े काले अक्षर + साफ बैकग्राउंड)
+        const norm = gray / 255;
+        let enhanced;
+        if (norm > 0.60) {
+          // बैकग्राउंड को बिना पिक्सल तोड़े क्लीन वाइट की तरफ ले जाना
+          enhanced = 0.60 + Math.pow((norm - 0.60) / 0.40, 0.9) * 0.40;
+          enhanced = Math.min(1, enhanced * 1.15);
         } else {
-          // 115 से 185 के बीच स्मूथ कंट्रास्ट रैम्प (ताकि बारीक फॉन्ट न कटे)
-          const t = (gray - 115) / 70;
-          xerox = Math.round(40 + t * t * 215);
+          // टेक्स्ट को गहरा और क्रिस्प ब्लैक बनाना (फॉन्ट सुरक्षित)
+          enhanced = Math.pow(norm / 0.60, 1.35) * 0.60;
         }
-
+        
+        const xerox = Math.min(255, Math.max(0, enhanced * 255));
         r = xerox; g = xerox; b = xerox;
       } else if (mode === "magic") {
         // संतुलित CamScanner टोनल कर्व (बिना ओवर-एक्सपोजर और बिना स्याही फैले)
