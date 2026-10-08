@@ -21,6 +21,7 @@ export default function PhotoDocEditorPage() {
   const [imgUrl, setImgUrl] = useState<string>("");
   const [fileName, setFileName] = useState<string>("photo");
   const [croppedUrl, setCroppedUrl] = useState<string>("");
+  const [freeCropRatio, setFreeCropRatio] = useState<number | null>(null);
   const [bgRemovedUrl, setBgRemovedUrl] = useState<string | null>(null);
 
   // Crop Box & Preset States
@@ -75,13 +76,19 @@ export default function PhotoDocEditorPage() {
   const activeDisplayImg = bgRemovedUrl || croppedUrl;
 
   const getPresetRatio = (p: AspectPreset): string => {
-    if (p === "passport") return "3.5 / 4.5";
-    if (p === "4:6") return photoOrientation === "portrait" ? "4 / 6" : "6 / 4";
-    if (p === "5:7") return photoOrientation === "portrait" ? "5 / 7" : "7 / 5";
-    if (p === "8:10") return photoOrientation === "portrait" ? "8 / 10" : "10 / 8";
-    if (p === "signature") return "3.5 / 1.5";
-    if (p === "card") return "8.5 / 5.5";
-    if (p === "a4") return photoOrientation === "portrait" ? "210 / 297" : "297 / 210";
+    const isPort = photoOrientation === "portrait";
+    if (p === "free" && freeCropRatio) {
+      return isPort 
+        ? `${Math.min(freeCropRatio, 1 / freeCropRatio)} / 1` 
+        : `${Math.max(freeCropRatio, 1 / freeCropRatio)} / 1`;
+    }
+    if (p === "passport") return isPort ? "3.5 / 4.5" : "4.5 / 3.5";
+    if (p === "4:6") return isPort ? "4 / 6" : "6 / 4";
+    if (p === "5:7") return isPort ? "5 / 7" : "7 / 5";
+    if (p === "8:10") return isPort ? "8 / 10" : "10 / 8";
+    if (p === "a4") return isPort ? "210 / 297" : "297 / 210";
+    if (p === "signature") return isPort ? "1.5 / 3.5" : "3.5 / 1.5";
+    if (p === "card") return isPort ? "5.5 / 8.5" : "8.5 / 5.5";
     if (p === "1:1") return "1 / 1";
     return "auto";
   };
@@ -184,33 +191,42 @@ export default function PhotoDocEditorPage() {
 
   const applyPreset = (p: AspectPreset) => {
     setPreset(p);
-    let ratio = 1;
-    if (p === "passport") ratio = 3.5 / 4.5;
-    else if (p === "4:6") ratio = 4 / 6;
-    else if (p === "5:7") ratio = 5 / 7;
-    else if (p === "8:10") ratio = 8 / 10;
-    else if (p === "signature") ratio = 3.5 / 1.5;
-    else if (p === "card") ratio = 8.5 / 5.5;
-    else if (p === "a4") ratio = 210 / 297;
-    else if (p === "1:1") ratio = 1;
-    else return;
+    if (p === "free") return;
 
-    if (photoOrientation === "landscape" && p !== "1:1" && p !== "free") {
-      ratio = 1 / ratio;
+    setPhotoOrientation("portrait");
+
+    // शुद्ध पोर्ट्रेट अनुपात (Width / Height)
+    let ratio = 1;
+    if (p === "passport") ratio = 3.5 / 4.5;       // मानक पासपोर्ट (0.777)
+    else if (p === "4:6") ratio = 4 / 6;           // 4x6 इंच (0.666)
+    else if (p === "5:7") ratio = 5 / 7;           // 5x7 इंच (0.714)
+    else if (p === "8:10") ratio = 8 / 10;         // 8x10 इंच (0.800)
+    else if (p === "a4") ratio = 210 / 297;        // A4 शीट (0.707)
+    else if (p === "signature") ratio = 3.5 / 1.5; // हस्ताक्षर (2.333 - लैंडस्केप)
+    else if (p === "card") ratio = 8.5 / 5.5;      // आईडी कार्ड (1.545 - लैंडस्केप)
+    else if (p === "1:1") ratio = 1;
+
+    const cWidth = containerRef.current?.clientWidth || 600;
+    const cHeight = containerRef.current?.clientHeight || 500;
+
+    // स्क्रीन पर वास्तविक पिक्सल ऊँचाई व चौड़ाई
+    let pixelH = Math.min(cHeight * 0.65, 420);
+    let pixelW = pixelH * ratio;
+
+    if (pixelW > cWidth * 0.85) {
+      pixelW = cWidth * 0.85;
+      pixelH = pixelW / ratio;
     }
 
-    setCrop((prev) => {
-      let w = prev.w;
-      let h = w / ratio;
-      if (h > 90) {
-        h = 90;
-        w = h * ratio;
-      }
-      return {
-        ...prev,
-        w: Math.min(Math.round(w), 90),
-        h: Math.min(Math.round(h), 90),
-      };
+    // कंटेनर के सापेक्ष शुद्ध % चौड़ाई और % ऊँचाई
+    const pctW = Math.max(8, Math.min(92, (pixelW / cWidth) * 100));
+    const pctH = Math.max(8, Math.min(92, (pixelH / cHeight) * 100));
+
+    setCrop({
+      x: Math.max(2, (100 - pctW) / 2),
+      y: Math.max(2, (100 - pctH) / 2),
+      w: pctW,
+      h: pctH,
     });
   };
 
@@ -238,6 +254,11 @@ export default function PhotoDocEditorPage() {
     setter(val);
   };
 
+  const currentPresetRef = useRef<AspectPreset>(preset);
+  useEffect(() => {
+    currentPresetRef.current = preset;
+  }, [preset]);
+
   const onDragStart = (e: React.MouseEvent | React.TouchEvent, type: string) => {
     e.stopPropagation();
     const clientX = "touches" in e ? e.touches[0].clientX : e.clientX;
@@ -261,35 +282,93 @@ export default function PhotoDocEditorPage() {
       const dy = ((clientY - dragRef.current.startY) / rect.height) * 100;
 
       const { cropStart, type } = dragRef.current;
+      const activePreset = currentPresetRef.current;
       let newCrop = { ...cropStart };
 
       if (type === "move") {
         newCrop.x = Math.max(0, Math.min(100 - newCrop.w, cropStart.x + dx));
         newCrop.y = Math.max(0, Math.min(100 - newCrop.h, cropStart.y + dy));
-      } else if (type === "se") {
-        newCrop.w = Math.max(15, Math.min(100 - newCrop.x, cropStart.w + dx));
-        newCrop.h = Math.max(15, Math.min(100 - newCrop.y, cropStart.h + dy));
-      } else if (type === "sw") {
-        const potentialW = Math.max(15, cropStart.w - dx);
-        if (cropStart.x + dx >= 0) {
-          newCrop.x = cropStart.x + dx;
-          newCrop.w = potentialW;
+      } else if (activePreset === "free") {
+        // === 100% फ्री मोड: चारों कोने पूरी तरह स्वतंत्र (कोई रेश्यो लॉक नहीं) ===
+        if (type === "se") {
+          newCrop.w = Math.max(5, Math.min(100 - cropStart.x, cropStart.w + dx));
+          newCrop.h = Math.max(5, Math.min(100 - cropStart.y, cropStart.h + dy));
+        } else if (type === "sw") {
+          const maxLeft = cropStart.x + cropStart.w - 5;
+          const targetX = Math.max(0, Math.min(maxLeft, cropStart.x + dx));
+          newCrop.x = targetX;
+          newCrop.w = (cropStart.x + cropStart.w) - targetX;
+          newCrop.h = Math.max(5, Math.min(100 - cropStart.y, cropStart.h + dy));
+        } else if (type === "ne") {
+          newCrop.w = Math.max(5, Math.min(100 - cropStart.x, cropStart.w + dx));
+          const maxTop = cropStart.y + cropStart.h - 5;
+          const targetY = Math.max(0, Math.min(maxTop, cropStart.y + dy));
+          newCrop.y = targetY;
+          newCrop.h = (cropStart.y + cropStart.h) - targetY;
+        } else if (type === "nw") {
+          const maxLeft = cropStart.x + cropStart.w - 5;
+          const targetX = Math.max(0, Math.min(maxLeft, cropStart.x + dx));
+          newCrop.x = targetX;
+          newCrop.w = (cropStart.x + cropStart.w) - targetX;
+
+          const maxTop = cropStart.y + cropStart.h - 5;
+          const targetY = Math.max(0, Math.min(maxTop, cropStart.y + dy));
+          newCrop.y = targetY;
+          newCrop.h = (cropStart.y + cropStart.h) - targetY;
         }
-        newCrop.h = Math.max(15, Math.min(100 - newCrop.y, cropStart.h + dy));
-      } else if (type === "ne") {
-        newCrop.w = Math.max(15, Math.min(100 - newCrop.x, cropStart.w + dx));
-        if (cropStart.y + dy >= 0) {
-          newCrop.y = cropStart.y + dy;
-          newCrop.h = Math.max(15, cropStart.h - dy);
-        }
-      } else if (type === "nw") {
-        if (cropStart.x + dx >= 0) {
-          newCrop.x = cropStart.x + dx;
-          newCrop.w = Math.max(15, cropStart.w - dx);
-        }
-        if (cropStart.y + dy >= 0) {
-          newCrop.y = cropStart.y + dy;
-          newCrop.h = Math.max(15, cropStart.h - dy);
+      } else {
+        // === फिक्स्ड प्रीसेट मोड: केवल यहाँ अनुपात लॉक रहेगा ===
+        let ratio = 1;
+        if (activePreset === "passport") ratio = 3.5 / 4.5;
+        else if (activePreset === "4:6") ratio = 4 / 6;
+        else if (activePreset === "5:7") ratio = 5 / 7;
+        else if (activePreset === "8:10") ratio = 8 / 10;
+        else if (activePreset === "a4") ratio = 210 / 297;
+        else if (activePreset === "signature") ratio = 3.5 / 1.5;
+        else if (activePreset === "card") ratio = 8.5 / 5.5;
+
+        const containerAspect = rect.width / rect.height;
+
+        if (type === "se") {
+          let nw = Math.max(8, Math.min(100 - cropStart.x, cropStart.w + dx));
+          let nh = nw / (ratio * containerAspect);
+          if (cropStart.y + nh > 100) {
+            nh = 100 - cropStart.y;
+            nw = nh * ratio * containerAspect;
+          }
+          newCrop.w = nw;
+          newCrop.h = nh;
+        } else if (type === "sw") {
+          let nw = Math.max(8, Math.min(cropStart.x + cropStart.w, cropStart.w - dx));
+          let nh = nw / (ratio * containerAspect);
+          if (cropStart.y + nh > 100) {
+            nh = 100 - cropStart.y;
+            nw = nh * ratio * containerAspect;
+          }
+          newCrop.x = cropStart.x + (cropStart.w - nw);
+          newCrop.w = nw;
+          newCrop.h = nh;
+        } else if (type === "ne") {
+          let nw = Math.max(8, Math.min(100 - cropStart.x, cropStart.w + dx));
+          let nh = nw / (ratio * containerAspect);
+          if (nh > cropStart.y + cropStart.h) {
+            nh = cropStart.y + cropStart.h;
+            nw = nh * ratio * containerAspect;
+          }
+          newCrop.y = (cropStart.y + cropStart.h) - nh;
+          newCrop.w = nw;
+          newCrop.h = nh;
+        } else if (type === "nw") {
+          let nw = Math.max(8, Math.min(cropStart.x + cropStart.w, cropStart.w - dx));
+          let nh = nw / (ratio * containerAspect);
+          if (nh > cropStart.y + cropStart.h) {
+            nh = cropStart.y + cropStart.h;
+            nw = nh * ratio * containerAspect;
+          }
+          newCrop.x = cropStart.x + (cropStart.w - nw);
+          newCrop.y = (cropStart.y + cropStart.h) - nh;
+          newCrop.w = nw;
+          newCrop.h = nh;
         }
       }
 
@@ -313,27 +392,63 @@ export default function PhotoDocEditorPage() {
     };
   }, []);
 
+    const handleResetToCropped = () => {
+    setBrightness(100);
+    setContrast(100);
+    setSaturation(100);
+    setIsBw(false);
+    setIsAutoEnhanced(false);
+    setTuneMode("manual");
+    setBgColor("transparent");
+    setHasBorder(false);
+    setEnableStamp(false);
+    setCandidateName("");
+    setDopDate("");
+    setRotation(0);
+    setFlipH(false);
+    setFlipV(false);
+    setFitMode("fit");
+    if (preset === "free" && freeCropRatio) {
+      if (freeCropRatio > 1.05) setPhotoOrientation("landscape");
+      else setPhotoOrientation("portrait");
+    }
+  };
+
   const confirmCrop = () => {
     const img = sourceImgRef.current;
     const container = containerRef.current;
     if (!img || !container) return;
 
+    // 1. रोटेटेड इमेज के लिए एक टेम्परेरी पूर्ण-रेजोल्यूशन कैनवास तैयार करें
+    const rot = (rotation % 360 + 360) % 360;
+    const isSwapped = rot === 90 || rot === 270;
+
+    const baseCanvas = document.createElement("canvas");
+    baseCanvas.width = isSwapped ? img.naturalHeight : img.naturalWidth;
+    baseCanvas.height = isSwapped ? img.naturalWidth : img.naturalHeight;
+    const bCtx = baseCanvas.getContext("2d");
+    if (!bCtx) return;
+
+    bCtx.save();
+    bCtx.translate(baseCanvas.width / 2, baseCanvas.height / 2);
+    bCtx.rotate((rot * Math.PI) / 180);
+    bCtx.drawImage(img, -img.naturalWidth / 2, -img.naturalHeight / 2);
+    bCtx.restore();
+
+    // 2. कंटेनर और स्क्रीन पर दिख रही इमेज का वास्तविक बाउंडिंग रेक्ट
     const imgRect = img.getBoundingClientRect();
     const containerRect = container.getBoundingClientRect();
 
-    // कंटेनर के अंदर इमेज का वास्तविक स्थान (offset)
     const imgLeft = imgRect.left - containerRect.left;
     const imgTop = imgRect.top - containerRect.top;
     const imgWidth = imgRect.width;
     const imgHeight = imgRect.height;
 
-    // क्रॉप बॉक्स का पिक्सल स्थान
     const cropPixelX = (crop.x / 100) * containerRect.width;
     const cropPixelY = (crop.y / 100) * containerRect.height;
     const cropPixelW = (crop.w / 100) * containerRect.width;
     const cropPixelH = (crop.h / 100) * containerRect.height;
 
-    // सिर्फ इमेज के अंदर वाला क्रॉप एरिया
     const intersectX = Math.max(imgLeft, cropPixelX);
     const intersectY = Math.max(imgTop, cropPixelY);
     const intersectRight = Math.min(imgLeft + imgWidth, cropPixelX + cropPixelW);
@@ -342,9 +457,9 @@ export default function PhotoDocEditorPage() {
     const validW = Math.max(10, intersectRight - intersectX);
     const validH = Math.max(10, intersectBottom - intersectY);
 
-    // ओरिजिनल इमेज (naturalWidth/naturalHeight) के स्केल पर कन्वर्शन
-    const scaleX = img.naturalWidth / imgWidth;
-    const scaleY = img.naturalHeight / imgHeight;
+    // बेस कैनवास के स्केल पर मैपिंग
+    const scaleX = baseCanvas.width / imgWidth;
+    const scaleY = baseCanvas.height / imgHeight;
 
     const sourceX = Math.round((intersectX - imgLeft) * scaleX);
     const sourceY = Math.round((intersectY - imgTop) * scaleY);
@@ -353,15 +468,28 @@ export default function PhotoDocEditorPage() {
 
     if (sourceW <= 0 || sourceH <= 0) return;
 
-    const canvas = document.createElement("canvas");
-    canvas.width = sourceW;
-    canvas.height = sourceH;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    // 3. अंतिम कटी हुई इमेज तैयार करना
+    const cropCanvas = document.createElement("canvas");
+    cropCanvas.width = sourceW;
+    cropCanvas.height = sourceH;
+    const cCtx = cropCanvas.getContext("2d");
+    if (!cCtx) return;
 
-    ctx.drawImage(img, sourceX, sourceY, sourceW, sourceH, 0, 0, sourceW, sourceH);
+    cCtx.drawImage(baseCanvas, sourceX, sourceY, sourceW, sourceH, 0, 0, sourceW, sourceH);
 
-    setCroppedUrl(canvas.toDataURL("image/png"));
+    const aspect = sourceW / sourceH;
+    setFreeCropRatio(aspect);
+
+    // यदि कटी हुई इमेज चौड़ी (Landscape) है, तो एडिटर को भी लैंडस्केप सेट करें
+    if (aspect > 1.05) {
+      setPhotoOrientation("landscape");
+    } else {
+      setPhotoOrientation("portrait");
+    }
+
+    // एडिटर के लिए रोटेशन स्टेट को 0 पर रीसेट करें ताकि दोबारा न घूमे
+    setRotation(0);
+    setCroppedUrl(cropCanvas.toDataURL("image/png"));
     setBgRemovedUrl(null);
     setStep("editor");
   };
@@ -405,8 +533,26 @@ export default function PhotoDocEditorPage() {
         }
 
         const dims = getTargetDimensions(preset, photoOrientation);
-        const cw = dims.width;
-        const ch = dims.height;
+        let cw = dims.width;
+        let ch = dims.height;
+
+        // जब Full HD चुना हो, तो छोटे पिक्सेल (413px) में न सिकोड़ें - ओरिजिनल हाई-रेजोल्यूशन रखें
+        if (kbMode === "hd") {
+          const targetAspect = cw / ch;
+          const origW = img.naturalWidth || img.width;
+          const origH = img.naturalHeight || img.height;
+          
+          if (origW > 0 && origH > 0) {
+            // ओरिजिनल रेजोल्यूशन का पूरा उपयोग करते हुए अनुपात लॉक करें
+            if (origW / origH > targetAspect) {
+              ch = Math.max(origH, dims.height * 2);
+              cw = Math.round(ch * targetAspect);
+            } else {
+              cw = Math.max(origW, dims.width * 2);
+              ch = Math.round(cw / targetAspect);
+            }
+          }
+        }
 
         canvas.width = cw;
         canvas.height = ch;
@@ -486,12 +632,13 @@ export default function PhotoDocEditorPage() {
     const canvas = await makeFinalCanvas();
     if (!canvas) return;
 
-    let quality = 0.98;
+    let quality = 0.99; // Full HD पर 100% ओरिजिनल क्रिस्टल क्लियर आउटपुट
     if (kbMode === "custom") {
-      if (customKb <= 30) quality = 0.50;
-      else if (customKb <= 60) quality = 0.72;
-      else if (customKb <= 120) quality = 0.85;
-      else quality = 0.94;
+      if (customKb <= 30) quality = 0.45;
+      else if (customKb <= 60) quality = 0.65;
+      else if (customKb <= 120) quality = 0.80;
+      else if (customKb <= 300) quality = 0.90;
+      else quality = 0.95;
     }
 
     let data = canvas.toDataURL("image/jpeg", quality);
@@ -652,9 +799,26 @@ export default function PhotoDocEditorPage() {
                   </button>
                   <button
                     onClick={() => setZoomLevel(1)}
-                    className="ml-1 text-[9px] px-1 py-0.5 rounded bg-blue-50 text-blue-600 font-bold"
+                    title="रीसेट ज़ूम"
+                    className="ml-1 text-[9px] px-1 py-0.5 rounded bg-blue-50 text-blue-600 font-bold cursor-pointer"
                   >
                     ↺
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRotation((r) => (r + 90) % 360);
+                      // रोटेट होने पर बॉक्स को केंद्र में री-एडजस्ट करना
+                      setCrop((prev) => ({
+                        ...prev,
+                        x: Math.max(5, Math.round((100 - prev.w) / 2)),
+                        y: Math.max(5, Math.round((100 - prev.h) / 2)),
+                      }));
+                    }}
+                    title="90° घुमाएँ"
+                    className="ml-1 text-[11px] px-1.5 py-0.5 rounded bg-amber-50 hover:bg-amber-100 text-amber-700 font-black cursor-pointer border border-amber-200"
+                  >
+                    ↷ 90°
                   </button>
                 </div>
 
@@ -669,7 +833,7 @@ export default function PhotoDocEditorPage() {
                   ref={sourceImgRef}
                   src={imgUrl}
                   alt="Source"
-                  style={{ transform: `scale(${zoomLevel})`, transition: "transform 0.15s ease-out" }}
+                  style={{ transform: `scale(${zoomLevel}) rotate(${rotation}deg)`, transition: "transform 0.15s ease-out" }}
                   className="w-auto h-auto max-w-full max-h-full object-contain block pointer-events-none origin-center"
                 />
 
@@ -872,11 +1036,15 @@ export default function PhotoDocEditorPage() {
                 <h3 className="text-xs sm:text-sm font-black text-slate-900">
                   {editorMode === "photo" ? "📷 फोटो स्टूडियो टूल्स" : "📄 डॉक्यूमेंट टूल्स"}
                 </h3>
-                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                  editorMode === "photo" ? "bg-blue-50 text-blue-700 border-blue-200" : "bg-emerald-50 text-emerald-700 border-emerald-200"
-                }`}>
-                  सक्रिय मोड
-                </span>
+                <button
+                  type="button"
+                  onClick={handleResetToCropped}
+                  title="सभी बदलाव रीसेट करें और मूल क्रॉप स्थिति पर लौटें"
+                  className="text-[11px] font-black px-2.5 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 shadow-2xs active:scale-95 transition-all cursor-pointer flex items-center gap-1"
+                >
+                  <span>↺</span>
+                  <span>रीसेट</span>
+                </button>
               </div>
 
               {/* 📷 फोटो मोड टूल्स */}
@@ -897,7 +1065,7 @@ export default function PhotoDocEditorPage() {
                         <button
                           key={item.id}
                           type="button"
-                          onClick={() => setPreset(item.id as AspectPreset)}
+                          onClick={() => applyPreset(item.id as AspectPreset)}
                           className={`py-1.5 px-2 rounded-lg text-[11px] font-black border transition-all cursor-pointer ${
                             preset === item.id
                               ? "bg-blue-600 text-white border-blue-600 shadow-2xs"
@@ -1090,7 +1258,7 @@ export default function PhotoDocEditorPage() {
                         <button
                           key={item.id}
                           type="button"
-                          onClick={() => setPreset(item.id as AspectPreset)}
+                          onClick={() => applyPreset(item.id as AspectPreset)}
                           className={`py-1.5 px-2 rounded-lg text-[11px] font-black border transition-all cursor-pointer ${
                             preset === item.id
                               ? "bg-emerald-600 text-white border-emerald-600 shadow-2xs"

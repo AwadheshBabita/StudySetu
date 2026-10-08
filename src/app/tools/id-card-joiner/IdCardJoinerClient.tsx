@@ -575,12 +575,12 @@ export default function IdCardJoinerClient() {
       
       {/* ===================== दृश्य 1: मुख्य A4 प्रीव्यू और सारे टूल्स ===================== */}
       {screen === "id_home" && (
-        <div className="relative min-h-screen flex flex-col">
+        <div className="relative min-h-screen flex flex-col lg:grid lg:grid-cols-12 lg:gap-6 w-full lg:px-6 lg:py-4 lg:items-start">
           
           {/* 1. स्टिकी प्रिव्यू बॉक्स (ऊपर रुका रहेगा) */}
-          <div className="fixed top-[52px] left-0 right-0 z-30 bg-slate-100/95 backdrop-blur-sm border-b-2 border-slate-300 shadow-md px-3 pt-2 pb-2">
-            <div className="max-w-md mx-auto border-2 border-slate-900 rounded-2xl p-2 bg-white shadow-sm">
-              <div className="flex items-center justify-between pb-1 mb-1 border-b border-slate-200 text-xs">
+          <div className="fixed top-[52px] left-0 right-0 z-30 bg-slate-100/95 backdrop-blur-sm border-b-2 border-slate-300 shadow-md px-3 pt-2 pb-2 lg:static lg:z-auto lg:bg-transparent lg:backdrop-blur-none lg:border-none lg:shadow-none lg:p-0 lg:col-span-8 xl:col-span-8 lg:flex lg:justify-center lg:items-center lg:sticky lg:top-3 lg:h-[calc(100vh-80px)]">
+            <div className="max-w-md mx-auto border-2 border-slate-900 rounded-2xl p-2 bg-white shadow-sm lg:border-none lg:bg-transparent lg:shadow-none lg:p-0 lg:max-w-none lg:w-full lg:flex lg:justify-center lg:w-full lg:max-w-none lg:flex lg:justify-center lg:items-center lg:p-2 lg:bg-transparent lg:border-none lg:shadow-none">
+              <div className="flex items-center justify-between pb-1 mb-1 border-b border-slate-200 text-xs lg:hidden">
                 <span className="font-black text-slate-900 flex items-center gap-1.5 text-[11px]">
                   <span>📄</span> A4 शीट प्रीव्यू बॉक्स
                 </span>
@@ -590,7 +590,7 @@ export default function IdCardJoinerClient() {
               </div>
 
               <div className="w-full flex items-center justify-center py-0.5">
-                <div className="w-full max-w-[215px] aspect-[210/297] bg-white rounded-lg border-2 border-slate-800 shadow-sm p-1.5 flex flex-col items-center justify-between">
+                <div className="w-full max-w-[215px] lg:max-w-none lg:w-auto lg:h-[calc(100vh-95px)] aspect-[210/297] lg:max-w-none shadow-2xl bg-white rounded-lg border-2 border-slate-800 shadow-lg p-1.5 lg:p-4 flex flex-col items-center justify-between mx-auto">
                   <div
                     className={`w-full flex justify-center gap-1 transition-all ${
                       idLayoutMode === "horizontal" ? "flex-row items-center pt-0.5" : "flex-col items-center pt-0.5 gap-1"
@@ -652,8 +652,8 @@ export default function IdCardJoinerClient() {
           </div>
 
           {/* 2. नीचे का स्लाइडिंग टूल बॉक्स (सारे टूल्स यहाँ लाइन से मौजूद हैं) */}
-          <div className="w-full max-w-md mx-auto px-3 pt-[355px] pb-32 space-y-3.5 z-10 relative">
-            <div className="text-center pt-2">
+          <div className="w-full max-w-md mx-auto px-3 pt-[355px] pb-32 space-y-3.5 z-10 relative lg:pt-0 lg:max-w-none lg:px-0 lg:col-span-4 xl:col-span-4 lg:w-full lg:sticky lg:top-3 lg:h-[calc(100vh-80px)] lg:overflow-y-auto lg:pr-2">
+            <div className="text-center pt-2 lg:hidden">
               <div className="w-12 h-1 bg-slate-300 rounded-full mx-auto mb-1"></div>
               <p className="text-[10px] font-bold text-blue-600 tracking-tight">
                 ↓ टूल बॉक्स (ऊपर-नीचे स्लाइड करें)
