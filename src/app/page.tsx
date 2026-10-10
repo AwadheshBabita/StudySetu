@@ -582,69 +582,6 @@ export default function HomePage() {
       </main>
 
       <PwaInstallPrompt />
-
-            {/* फुटर साइटमैप (कार्ड स्टाइल) */}
-      <section className="border-t border-slate-200 bg-slate-50/50 pt-10 pb-8 mt-12">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-8 text-left">
-            {/* कार्ड 1 */}
-            <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-sm">
-              <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                <span>📷</span> फोटो व हस्ताक्षर
-              </h4>
-              <ul className="space-y-2 text-xs text-slate-600">
-                <li className="flex justify-between items-center"><Link href="/tools/photo-name-date" className="hover:text-blue-600">पासपोर्ट फोटो (नाम/तारीख)</Link><span className="text-[10px] bg-blue-50 text-blue-600 border border-blue-200 px-1.5 py-0.5 rounded font-semibold">Popular</span></li>
-                <li><Link href="/tools/signature-resize" className="hover:text-blue-600">सिग्नेचर रिसाइज़र व A4 स्कैनर</Link></li>
-                <li><Link href="/tools/passport-photo-4x6-maker" className="hover:text-blue-600">4×6 पासपोर्ट फोटो शीट</Link></li>
-                <li><Link href="/tools/photo-crop" className="hover:text-blue-600">फोटो एंड डॉक क्रॉपर</Link></li>
-                <li><Link href="/tools/passport-grid-maker" className="hover:text-blue-600">पासपोर्ट फोटो ग्रिड (A4)</Link></li>
-                <li><Link href="/tools/live-photo-capture" className="hover:text-blue-600">लाइव वेबकैम फोटो कैप्चर</Link></li>
-                <li><Link href="/tools/exact-pixel-resize" className="hover:text-blue-600">सटीक पिक्सेल रिसाइज़र</Link></li>
-                <li><Link href="/tools/exact-kb-compressor" className="hover:text-blue-600">सटीक KB कंप्रेसर</Link></li>
-              </ul>
-            </div>
-
-            {/* कार्ड 2 */}
-            <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-sm">
-              <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                <span>🪪</span> डॉक्यूमेंट व कार्ड
-              </h4>
-              <ul className="space-y-2 text-xs text-slate-600">
-                <li><Link href="/tools/document-scanner" className="hover:text-blue-600">स्मार्ट डॉक्यूमेंट स्कैनर</Link></li>
-                <li className="flex justify-between items-center"><Link href="/tools/id-card-joiner" className="hover:text-blue-600">आईडी कार्ड जॉइनर (Front+Back)</Link><span className="text-[10px] bg-emerald-50 text-emerald-600 border border-emerald-200 px-1.5 py-0.5 rounded font-semibold">Top</span></li>
-                <li><Link href="/tools/id-card-cropper" className="hover:text-blue-600">आईडी कार्ड सिंगल क्रॉपर</Link></li>
-                <li><Link href="/tools/certificate-fitter" className="hover:text-blue-600">सर्टिफिकेट A4 फिटर</Link></li>
-              </ul>
-            </div>
-
-            {/* कार्ड 3 */}
-            <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-sm">
-              <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                <span>📄</span> PDF टूल्स
-              </h4>
-              <ul className="space-y-2 text-xs text-slate-600">
-                <li><Link href="/tools/jpg-to-pdf" className="hover:text-blue-600">इमेज से A4 सरकारी PDF</Link></li>
-                <li><Link href="/tools/pdf-compressor" className="hover:text-blue-600">PDF कंप्रेसर</Link></li>
-                <li><Link href="/tools/pdf-merge-split" className="hover:text-blue-600">PDF मर्ज व स्प्लिट</Link></li>
-                <li><Link href="/tools/pdf-to-jpg" className="hover:text-blue-600">PDF से JPG कनवर्टर</Link></li>
-                <li><Link href="/tools/pdf-password" className="hover:text-blue-600">PDF पासवर्ड प्रोटेक्ट/रिमूवर</Link></li>
-              </ul>
-            </div>
-
-            {/* कार्ड 4 */}
-            <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-sm">
-              <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                <span>⚙️</span> एग्जाम यूटिलिटीज
-              </h4>
-              <ul className="space-y-2 text-xs text-slate-600">
-                <li><Link href="/tools/age-calculator" className="hover:text-blue-600">सरकारी परीक्षा आयु कैलकुलेटर</Link></li>
-                <li><Link href="/tools/exam-presets" className="hover:text-blue-600">ऑल इंडिया एग्जाम प्रीसेट्स</Link></li>
-                <li><Link href="/tools/csc-corner" className="hover:text-blue-600">सीएससी / जनसेवा केंद्र हब</Link></li>
-              </ul>
-            </div>
-          </div>
-        </div>
-      </section>
     </div>
   );
 }
