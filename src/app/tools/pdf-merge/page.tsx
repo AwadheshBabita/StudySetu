@@ -1,90 +1,165 @@
 "use client";
 
-import { useState, ChangeEvent } from "react";
+import { useState, useEffect, ChangeEvent } from "react";
 import Link from "next/link";
 import { PDFDocument } from "pdf-lib";
 
-interface PdfFileItem {
+interface PageThumb {
   id: string;
+  fileIndex: number;
+  fileName: string;
+  pageIndex: number; // 0-based in original file
+  pageNumber: number; // 1-based in original file
+  dataUrl: string;
+}
+
+interface LoadedFile {
   name: string;
   bytes: Uint8Array;
-  pageCount: number;
 }
 
 export default function PdfMergePage() {
-  const [files, setFiles] = useState<PdfFileItem[]>([]);
-  const [busy, setBusy] = useState(false);
-  const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
+  const [files, setFiles] = useState<LoadedFile[]>([]);
+  const [pages, setPages] = useState<PageThumb[]>([]);
+  const [selectedPageIds, setSelectedPageIds] = useState<string[]>([]);
+  const [loadingThumbs, setLoadingThumbs] = useState<boolean>(false);
+  const [busy, setBusy] = useState<boolean>(false);
+  const [statusMsg, setStatusMsg] = useState<string>("");
+  const [error, setError] = useState<string>("");
+
+  // PDF.js वर्कर सेटअप
+  useEffect(() => {
+    const initPdfJs = async () => {
+      const pdfjsLib = await import("pdfjs-dist");
+      pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+    };
+    initPdfJs();
+  }, []);
 
   const handleUpload = async (e: ChangeEvent<HTMLInputElement>) => {
     const uploadedFiles = e.target.files;
     if (!uploadedFiles || uploadedFiles.length === 0) return;
 
-    if (downloadUrl) URL.revokeObjectURL(downloadUrl);
-    setDownloadUrl(null);
+    setError("");
+    setStatusMsg("");
+    setPages([]);
+    setSelectedPageIds([]);
+    setLoadingThumbs(true);
 
-    const loaded: PdfFileItem[] = [];
-    for (const f of Array.from(uploadedFiles)) {
-      try {
-        const arr = new Uint8Array(await f.arrayBuffer());
-        const pdf = await PDFDocument.load(arr);
+    try {
+      const pdfjsLib = await import("pdfjs-dist");
+      const loaded: LoadedFile[] = [];
+      const thumbs: PageThumb[] = [];
+      const allSelected: string[] = [];
+
+      for (let fIdx = 0; fIdx < uploadedFiles.length; fIdx++) {
+        const upFile = uploadedFiles[fIdx];
+        const arr = new Uint8Array(await upFile.arrayBuffer());
         loaded.push({
-          id: Math.random().toString(36).substring(2, 9),
-          name: f.name,
+          name: upFile.name.replace(/\.[^/.]+$/, ""),
           bytes: arr,
-          pageCount: pdf.getPageCount(),
         });
-      } catch (err) {
-        alert(`फ़ाइल "${f.name}" पढ़ने में असमर्थ। सुनिश्चित करें कि यह पासवर्ड से सुरक्षित न हो।`);
+
+        const loadingTask = pdfjsLib.getDocument({ data: arr.slice() });
+        const pdfDoc = await loadingTask.promise;
+        const pageCount = pdfDoc.numPages;
+
+        for (let pIdx = 1; pIdx <= pageCount; pIdx++) {
+          const page = await pdfDoc.getPage(pIdx);
+          const viewport = page.getViewport({ scale: 0.35 });
+          const canvas = document.createElement("canvas");
+          const ctx = canvas.getContext("2d");
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
+
+          if (ctx) {
+            await page.render({ canvasContext: ctx, viewport }).promise;
+            const uniqueId = `f${fIdx}_p${pIdx}`;
+            thumbs.push({
+              id: uniqueId,
+              fileIndex: fIdx,
+              fileName: upFile.name.replace(/\.[^/.]+$/, ""),
+              pageIndex: pIdx - 1,
+              pageNumber: pIdx,
+              dataUrl: canvas.toDataURL("image/jpeg", 0.75),
+            });
+            allSelected.push(uniqueId);
+          }
+        }
       }
+
+      setFiles(loaded);
+      setPages(thumbs);
+      setSelectedPageIds(allSelected);
+    } catch (err: any) {
+      console.error(err);
+      setError("फ़ाइल पढ़ने में असमर्थ। कृपया सुनिश्चित करें कि PDF पासवर्ड से सुरक्षित न हो।");
+    } finally {
+      setLoadingThumbs(false);
     }
-    setFiles((prev) => [...prev, ...loaded]);
   };
 
-  const removeFile = (id: string) => {
-    if (downloadUrl) URL.revokeObjectURL(downloadUrl);
-    setDownloadUrl(null);
-    setFiles((prev) => prev.filter((item) => item.id !== id));
+  const togglePage = (id: string) => {
+    if (selectedPageIds.includes(id)) {
+      setSelectedPageIds(selectedPageIds.filter((pId) => pId !== id));
+    } else {
+      setSelectedPageIds([...selectedPageIds, id]);
+    }
   };
 
-  const moveFile = (index: number, direction: "up" | "down") => {
-    if (
-      (direction === "up" && index === 0) ||
-      (direction === "down" && index === files.length - 1)
-    )
-      return;
-
-    const targetIndex = direction === "up" ? index - 1 : index + 1;
-    const updated = [...files];
-    const temp = updated[index];
-    updated[index] = updated[targetIndex];
-    updated[targetIndex] = temp;
-    setFiles(updated);
+  const selectAll = () => {
+    setSelectedPageIds(pages.map((p) => p.id));
   };
 
+  const deselectAll = () => {
+    setSelectedPageIds([]);
+  };
+
+  // सभी चुने हुए पेजों को एक ही PDF में मर्ज करना
   const handleMerge = async () => {
-    if (files.length < 2) {
-      alert("कृपया जोड़ने के लिए कम से कम 2 PDF फ़ाइलें चुनें!");
+    if (files.length === 0 || selectedPageIds.length === 0) {
+      alert("कृपया कम से कम एक पेज चुनें!");
       return;
     }
 
     setBusy(true);
+    setStatusMsg("सभी चुने हुए पेजों को एक PDF में जोड़ा जा रहा है...");
+
     try {
       const mergedPdf = await PDFDocument.create();
 
-      for (const item of files) {
-        const doc = await PDFDocument.load(item.bytes);
-        const copiedPages = await mergedPdf.copyPages(doc, doc.getPageIndices());
-        copiedPages.forEach((page) => mergedPdf.addPage(page));
+      // फ़ाइलों को कैश करें ताकि बार-बार लोड न करना पड़े
+      const loadedDocMap: { [key: number]: PDFDocument } = {};
+      for (let i = 0; i < files.length; i++) {
+        loadedDocMap[i] = await PDFDocument.load(files[i].bytes);
       }
 
-      const mergedBytes = await mergedPdf.save();
-      const blob = new Blob([mergedBytes.buffer as ArrayBuffer], { type: "application/pdf" });
+      // जिस क्रम में ग्रिड में पेजेस हैं, उसी क्रम में जोड़े जाएंगे
+      for (const p of pages) {
+        if (!selectedPageIds.includes(p.id)) continue;
 
-      if (downloadUrl) URL.revokeObjectURL(downloadUrl);
-      setDownloadUrl(URL.createObjectURL(blob));
-    } catch (err) {
-      alert("PDF मर्ज करने में त्रुटि आई। कृपया फ़ाइलें जाँचें।");
+        const srcDoc = loadedDocMap[p.fileIndex];
+        const [copiedPage] = await mergedPdf.copyPages(srcDoc, [p.pageIndex]);
+        mergedPdf.addPage(copiedPage);
+      }
+
+      setStatusMsg("PDF तैयार हो रही है, डाउनलोड शुरू होने वाला है...");
+      const pdfBytes = await mergedPdf.save();
+      const blob = new Blob([pdfBytes.buffer as ArrayBuffer], { type: "application/pdf" });
+      const url = URL.createObjectURL(blob);
+
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `Merged_Document_${Date.now()}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+
+      setStatusMsg("मर्ज की गई PDF सफलतापूर्वक डाउनलोड हो गई!");
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || "PDF मर्ज करने में त्रुटि आई।");
     } finally {
       setBusy(false);
     }
@@ -92,8 +167,8 @@ export default function PdfMergePage() {
 
   return (
     <div className="min-h-screen bg-slate-50 py-10 px-4 sm:px-6">
-      <div className="max-w-2xl mx-auto space-y-6">
-        
+      <div className="max-w-4xl mx-auto space-y-6">
+
         {/* नेविगेशन */}
         <div className="flex items-center justify-between">
           <Link
@@ -103,7 +178,7 @@ export default function PdfMergePage() {
             &larr; PDF हब पर लौटें
           </Link>
           <span className="text-[11px] font-bold text-indigo-700 bg-indigo-100 px-2.5 py-0.5 rounded-full border border-indigo-200">
-            मर्ज टूल
+            स्मार्ट मर्ज टूल
           </span>
         </div>
 
@@ -111,112 +186,128 @@ export default function PdfMergePage() {
         <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200 shadow-sm space-y-6">
           <div className="space-y-1 text-center sm:text-left">
             <h1 className="text-xl sm:text-2xl font-black text-slate-900 flex items-center justify-center sm:justify-start gap-2">
-              <span className="p-2 rounded-xl bg-indigo-100 text-indigo-700 text-lg">📑</span>
+              <span className="p-2 rounded-xl bg-indigo-100 text-indigo-600 text-lg">📑</span>
               PDF मर्ज करें (Merge PDF)
             </h1>
             <p className="text-xs sm:text-sm text-slate-500">
-              कई PDF फ़ाइलों को एक साथ जोड़ें। आप ऊपर-नीचे करके क्रम भी बदल सकते हैं।
+              कई PDF फ़ाइलों को एक साथ चुनें, पेजों का लाइव प्रीव्यू देखें और गैर-ज़रूरी पेज हटाकर एक नई PDF फ़ाइल बनाएँ।
             </p>
           </div>
 
-          {/* अपलोड फ़ील्ड */}
+          {/* फ़ाइल चयन (मल्टीपल फाइल्स) */}
           <div className="space-y-2">
             <label className="text-xs font-bold text-slate-700 block">
-              PDF फ़ाइलें चुनें (एक साथ कई चुन सकते हैं)
+              PDF फ़ाइलें चुनें (एक साथ 2 या अधिक फ़ाइलें चुन सकते हैं):
             </label>
             <input
               type="file"
               multiple
-              accept="application/pdf"
+              accept=".pdf,application/pdf"
               onChange={handleUpload}
-              className="w-full text-xs text-slate-600 file:mr-3 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 file:cursor-pointer border border-slate-200 rounded-xl p-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="w-full text-xs text-slate-600 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 border border-slate-200 rounded-2xl cursor-pointer p-1"
             />
           </div>
 
-          {/* फ़ाइलों की सूची */}
-          {files.length > 0 && (
-            <div className="space-y-2.5">
-              <p className="text-xs font-bold text-slate-700">
-                जोड़ी जाने वाली फ़ाइलें ({files.length}):
-              </p>
-              <div className="space-y-2">
-                {files.map((f, idx) => (
-                  <div
-                    key={f.id}
-                    className="flex items-center justify-between p-3 rounded-2xl bg-slate-50 border border-slate-200 text-xs"
+          {/* लोडिंग स्पिनर */}
+          {loadingThumbs && (
+            <div className="py-12 text-center space-y-3">
+              <div className="inline-block w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+              <p className="text-xs font-bold text-slate-600">सभी फ़ाइलों के पेजों का प्रीव्यू लोड हो रहा है, कृपया प्रतीक्षा करें...</p>
+            </div>
+          )}
+
+          {/* एरर */}
+          {error && (
+            <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-xs font-semibold">
+              ⚠️ {error}
+            </div>
+          )}
+
+          {/* स्टेटस मैसेज */}
+          {statusMsg && !error && (
+            <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-xs font-bold text-center">
+              ⏳ {statusMsg}
+            </div>
+          )}
+
+          {/* पेजों का प्रीव्यू ग्रिड */}
+          {pages.length > 0 && (
+            <div className="space-y-4 pt-2">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                <div className="text-xs font-bold text-slate-800">
+                  कुल फ़ाइलें: <span className="text-indigo-600 font-extrabold">{files.length}</span> | कुल पेज:{" "}
+                  <span className="text-indigo-600 font-extrabold">{pages.length}</span> | शामिल पेज:{" "}
+                  <span className="text-emerald-600 font-extrabold">{selectedPageIds.length}</span>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={selectAll}
+                    className="px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition"
                   >
-                    <div className="flex items-center gap-2 overflow-hidden pr-2">
-                      <span className="font-bold text-slate-400 w-5">{idx + 1}.</span>
-                      <span className="font-semibold text-slate-800 truncate">{f.name}</span>
-                      <span className="text-[10px] text-slate-400 whitespace-nowrap">({f.pageCount} पेज)</span>
+                    सभी चुनें
+                  </button>
+                  <button
+                    type="button"
+                    onClick={deselectAll}
+                    className="px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition"
+                  >
+                    सब हटाएं
+                  </button>
+                </div>
+              </div>
+
+              {/* ग्रिड */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3.5 max-h-[460px] overflow-y-auto p-2 bg-slate-50/70 rounded-2xl border border-slate-200">
+                {pages.map((p) => {
+                  const isChecked = selectedPageIds.includes(p.id);
+                  return (
+                    <div
+                      key={p.id}
+                      onClick={() => togglePage(p.id)}
+                      className={`relative flex flex-col items-center bg-white rounded-xl p-2 cursor-pointer border-2 transition shadow-xs select-none ${
+                        isChecked
+                          ? "border-indigo-500 ring-2 ring-indigo-500/20 bg-indigo-50/30"
+                          : "border-slate-200 hover:border-slate-300 opacity-60 hover:opacity-100"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={() => {}}
+                        className="absolute top-2.5 right-2.5 accent-indigo-600 w-4 h-4 cursor-pointer"
+                      />
+                      <img
+                        src={p.dataUrl}
+                        alt={`${p.fileName} Page ${p.pageNumber}`}
+                        className="w-full h-auto object-contain rounded border border-slate-100 mb-2 pointer-events-none"
+                      />
+                      <span className="text-[10px] text-slate-500 truncate max-w-[120px] font-medium" title={p.fileName}>
+                        {p.fileName}
+                      </span>
+                      <span className="text-[11px] font-black text-slate-700">
+                        पेज {p.pageNumber}
+                      </span>
                     </div>
-                    <div className="flex items-center gap-1 shrink-0">
-                      <button
-                        onClick={() => moveFile(idx, "up")}
-                        disabled={idx === 0}
-                        className="px-2 py-1 bg-white border border-slate-200 rounded-lg text-slate-600 disabled:opacity-30 hover:bg-slate-100 font-bold"
-                      >
-                        ↑
-                      </button>
-                      <button
-                        onClick={() => moveFile(idx, "down")}
-                        disabled={idx === files.length - 1}
-                        className="px-2 py-1 bg-white border border-slate-200 rounded-lg text-slate-600 disabled:opacity-30 hover:bg-slate-100 font-bold"
-                      >
-                        ↓
-                      </button>
-                      <button
-                        onClick={() => removeFile(f.id)}
-                        className="px-2 py-1 bg-red-50 text-red-600 border border-red-200 rounded-lg hover:bg-red-100 font-bold"
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
+              </div>
+
+              {/* सिंगल डाउनलोड बटन */}
+              <div className="pt-4 border-t border-slate-100">
+                <button
+                  type="button"
+                  disabled={busy || selectedPageIds.length === 0}
+                  onClick={handleMerge}
+                  className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-black text-sm rounded-2xl shadow-xs transition active:scale-98 flex items-center justify-center gap-2"
+                >
+                  <span className="text-lg">📄</span>
+                  <span>सभी पेज मर्ज करें और डाउनलोड करें ({selectedPageIds.length} पेज)</span>
+                </button>
               </div>
             </div>
           )}
-
-          {/* एक्शन बटन */}
-          <div>
-            <button
-              onClick={handleMerge}
-              disabled={busy || files.length < 2}
-              className="w-full py-3 px-5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-black text-sm shadow-lg shadow-indigo-200 transition-all flex items-center justify-center gap-2"
-            >
-              {busy ? (
-                <>
-                  <span className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  PDF फाइलें जोड़ी जा रही हैं...
-                </>
-              ) : (
-                "📑 PDF फाइलें मर्ज करें"
-              )}
-            </button>
-          </div>
-
-          {/* डाउनलोड बॉक्स */}
-          {downloadUrl && (
-            <div className="p-4 rounded-2xl bg-indigo-50 border-2 border-indigo-300 text-center space-y-3 animate-fade-in">
-              <span className="text-2xl block">🎉</span>
-              <div>
-                <p className="text-xs sm:text-sm font-black text-indigo-900">
-                  सफ़ल! आपकी सभी PDF फाइलें सफलतापूर्वक जोड़ दी गई हैं।
-                </p>
-              </div>
-              <a
-                href={downloadUrl}
-                download="merged_document.pdf"
-                className="inline-flex items-center gap-2 py-2.5 px-6 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black shadow-md transition-all"
-              >
-                ⬇️ मर्ज की गई PDF डाउनलोड करें
-              </a>
-            </div>
-          )}
-
         </div>
-
       </div>
     </div>
   );

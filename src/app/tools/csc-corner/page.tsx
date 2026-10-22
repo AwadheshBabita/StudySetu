@@ -38,16 +38,6 @@ const cscToolsList: CscTool[] = [
     isLive: true,
   },
   {
-    id: 'passport-grid-maker',
-    title: 'पासपोर्ट फोटो 4x6 / A4 शीट मेकर',
-    desc: '1 फोटो से तुरंत 6 या 8 फोटो की 4x6 शीट और 30 फोटो की A4 प्रिंटेबल शीट कटिंग गाइड बॉर्डर के साथ 300 DPI में तैयार करें।',
-    badge: '300 DPI Studio Sheet',
-    badgeColor: 'bg-indigo-100 text-indigo-800 border-indigo-200',
-    icon: '🖨️',
-    href: '/tools/passport-grid-maker',
-    isLive: true,
-  },
-  {
     id: 'certificate-fitter',
     title: 'सर्टिफिकेट व डॉक्युमेंट कनवर्टर',
     desc: 'आय, जाति, निवास व ई-श्रम कार्ड को स्टेट पोर्टल (UP Scholarship, RTPS) के 50KB-100KB मानक में बिना सील धुंधले किए सेट करें।',

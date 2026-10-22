@@ -11,7 +11,7 @@ export const metadata: Metadata = {
     "signature rejection reasons online form",
     "ssc railway photo upload guidelines",
     "online application document size rules",
-    "avoid form rejection govt jobs"
+    "avoid form rejection govt jobs",
   ],
   alternates: {
     canonical: "https://examsewa.online/tools/exam-guide",

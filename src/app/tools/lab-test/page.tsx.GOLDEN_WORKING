@@ -1,0 +1,332 @@
+"use client";
+
+import React, { useState, useRef } from "react";
+import Link from "next/link";
+
+export default function LabTestOptimizer() {
+  const [originalImage, setOriginalImage] = useState<string | null>(null);
+  const [compressedImage, setCompressedImage] = useState<string | null>(null);
+  const [originalSize, setOriginalSize] = useState<number>(0);
+  const [compressedSize, setCompressedSize] = useState<number>(0);
+  const [quality, setQuality] = useState<number>(80);
+  const [zoomLevel, setZoomLevel] = useState<number>(1);
+  const [dimensions, setDimensions] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
+  const [fileName, setFileName] = useState<string>("optimized-image");
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const imageElementRef = useRef<HTMLImageElement | null>(null);
+
+  // Synchronized Scrolling References
+  const origBoxRef = useRef<HTMLDivElement>(null);
+  const compBoxRef = useRef<HTMLDivElement>(null);
+  const isSyncingRef = useRef<boolean>(false);
+
+  const syncScroll = (source: HTMLDivElement | null, target: HTMLDivElement | null) => {
+    if (!source || !target || isSyncingRef.current) return;
+    isSyncingRef.current = true;
+    target.scrollTop = source.scrollTop;
+    target.scrollLeft = source.scrollLeft;
+    requestAnimationFrame(() => {
+      isSyncingRef.current = false;
+    });
+  };
+
+  // Reset to Upload Screen (Back action)
+  const handleBackToUpload = () => {
+    setOriginalImage(null);
+    setCompressedImage(null);
+    setOriginalSize(0);
+    setCompressedSize(0);
+    setZoomLevel(1);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
+  // File Upload Handler
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setOriginalSize(file.size);
+    setFileName(file.name.replace(/\.[^/.]+$/, ""));
+    setZoomLevel(1);
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        setDimensions({ width: img.width, height: img.height });
+        imageElementRef.current = img;
+        setOriginalImage(event.target?.result as string);
+        compress(img, quality);
+      };
+      img.src = event.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Real-time Compression
+  const compress = (img: HTMLImageElement, q: number) => {
+    const canvas = document.createElement("canvas");
+    canvas.width = img.width;
+    canvas.height = img.height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    ctx.drawImage(img, 0, 0, img.width, img.height);
+
+    const factor = Math.max(0.01, Math.min(1.0, q / 100));
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) return;
+        setCompressedSize(blob.size);
+        setCompressedImage(URL.createObjectURL(blob));
+      },
+      "image/jpeg",
+      factor
+    );
+  };
+
+  const handleQualityChange = (newQ: number) => {
+    setQuality(newQ);
+    if (imageElementRef.current) {
+      compress(imageElementRef.current, newQ);
+    }
+  };
+
+  const downloadJPG = () => {
+    if (!compressedImage) return;
+    const a = document.createElement("a");
+    a.href = compressedImage;
+    a.download = `${fileName}-optimized.jpg`;
+    a.click();
+  };
+
+  const downloadPDF = () => {
+    if (!compressedImage) return;
+    const w = window.open("");
+    if (w) {
+      w.document.write(`<img src="${compressedImage}" style="max-width:100%;" onload="window.print();"/>`);
+      w.document.close();
+    }
+  };
+
+  const handleShare = async () => {
+    if (!compressedImage) return;
+    try {
+      const res = await fetch(compressedImage);
+      const blob = await res.blob();
+      const file = new File([blob], `${fileName}.jpg`, { type: "image/jpeg" });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: "Optimized Photo" });
+      } else {
+        alert("फ़ाइल डाउनलोड करके शेयर करें।");
+      }
+    } catch (e) {}
+  };
+
+  const formatSize = (bytes: number) => {
+    if (bytes === 0) return "0 KB";
+    return (bytes / 1024).toFixed(1) + " KB";
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-100 text-slate-800 flex flex-col p-2 md:p-4">
+      {/* Header */}
+      <header className="flex items-center justify-between pb-2 border-b border-slate-300 max-w-5xl mx-auto w-full">
+        <div className="flex items-center gap-2">
+          <Link href="/" className="p-1.5 rounded-lg bg-white border border-slate-300 hover:bg-slate-200 shadow-sm">
+            <svg className="w-4 h-4 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
+          </Link>
+          <div>
+            <div className="flex items-center gap-1.5">
+              <h1 className="text-base font-bold text-slate-900">Live Image Optimizer</h1>
+              <span className="text-[9px] bg-red-600 text-white px-1.5 py-0.5 rounded font-mono font-bold">TEST LAB</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Back Button to Upload Page */}
+        {originalImage && (
+          <button
+            onClick={handleBackToUpload}
+            className="flex items-center gap-1 text-xs bg-white hover:bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 font-medium shadow-sm active:scale-95 transition"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 15l-3-3m0 0l3-3m-3 3h8M3 12a9 9 0 1118 0 9 9 0 01-18 0z" />
+            </svg>
+            <span>← बैक</span>
+          </button>
+        )}
+      </header>
+
+      {/* Main Container */}
+      <main className="max-w-5xl mx-auto w-full flex-col pt-2">
+        {!originalImage ? (
+          /* Compact Upload Card */
+          <div className="flex items-center justify-center pt-8">
+            <div
+              onClick={() => fileInputRef.current?.click()}
+              className="w-full max-w-sm border-2 border-dashed border-slate-300 hover:border-blue-500 rounded-xl flex flex-col items-center justify-center p-5 text-center cursor-pointer bg-white shadow-sm hover:shadow transition"
+            >
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleImageUpload}
+                accept="image/*"
+                className="hidden"
+              />
+              <div className="text-3xl mb-1.5">📁</div>
+              <h2 className="text-sm font-semibold text-slate-800">फोटो चुनें या यहाँ खींचें</h2>
+              <p className="text-[11px] text-slate-500 mt-0.5 mb-3">JPG, PNG अपलोड करें</p>
+              <span className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-4 py-1.5 rounded-lg shadow-sm">
+                अपलोड करें
+              </span>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {/* Unified Preview Box with Divider */}
+            <div className="bg-white border-2 border-slate-300 rounded-xl overflow-hidden shadow-sm flex flex-col md:flex-row">
+              {/* Part 1: Original */}
+              <div className="flex-1 flex flex-col min-w-0">
+                <div className="flex justify-between items-center px-3 py-1 bg-slate-50 border-b border-slate-200 text-[11px] font-mono">
+                  <span className="text-slate-500 font-medium">मूल फोटो (Original)</span>
+                  <span className="text-amber-600 font-bold">{formatSize(originalSize)}</span>
+                </div>
+                <div
+                  ref={origBoxRef}
+                  onScroll={() => syncScroll(origBoxRef.current, compBoxRef.current)}
+                  className="h-[210px] sm:h-[260px] p-2 bg-slate-50/50 overflow-auto select-none"
+                >
+                  <div
+                    style={{
+                      width: `${zoomLevel * 100}%`,
+                      margin: "0 auto",
+                    }}
+                  >
+                    <img
+                      src={originalImage}
+                      alt="Original"
+                      className="w-full h-auto object-contain object-top pointer-events-none block"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Blue Divider Line */}
+              <div className="h-[2px] w-full md:h-auto md:w-[2px] bg-blue-500"></div>
+
+              {/* Part 2: Compressed Preview */}
+              <div className="flex-1 flex flex-col min-w-0">
+                <div className="flex justify-between items-center px-3 py-1 bg-blue-50/50 border-b border-blue-100 text-[11px] font-mono">
+                  <span className="text-blue-600 font-bold">👁️ लाइव प्रीव्यू</span>
+                  <span className="bg-blue-600 text-white px-2 py-0.2 rounded font-bold">
+                    {formatSize(compressedSize)}
+                  </span>
+                </div>
+                <div
+                  ref={compBoxRef}
+                  onScroll={() => syncScroll(compBoxRef.current, origBoxRef.current)}
+                  className="h-[210px] sm:h-[260px] p-2 bg-slate-50/50 overflow-auto select-none"
+                >
+                  <div
+                    style={{
+                      width: `${zoomLevel * 100}%`,
+                      margin: "0 auto",
+                    }}
+                  >
+                    {compressedImage && (
+                      <img
+                        src={compressedImage}
+                        alt="Preview"
+                        className="w-full h-auto object-contain object-top pointer-events-none block"
+                      />
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Bottom Controls Deck */}
+            <div className="bg-white border border-slate-300 rounded-xl p-3 flex flex-col gap-3 shadow-sm">
+              {/* 1. Zoom Slider */}
+              <div className="flex flex-col gap-1 bg-slate-50 p-2 rounded-lg border border-slate-200">
+                <div className="flex justify-between items-center text-xs">
+                  <span className="font-semibold text-slate-700 flex items-center gap-1">
+                    🔍 ज़ूम स्लाइडर (तुलना सिंक):
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-blue-600 font-bold bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                      {zoomLevel.toFixed(1)}x
+                    </span>
+                    {zoomLevel > 1 && (
+                      <button
+                        onClick={() => setZoomLevel(1)}
+                        className="text-[10px] text-amber-600 font-bold hover:underline"
+                      >
+                        रीसेट (1x)
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <input
+                  type="range"
+                  min="1"
+                  max="4"
+                  step="0.1"
+                  value={zoomLevel}
+                  onChange={(e) => setZoomLevel(Number(e.target.value))}
+                  className="w-full accent-blue-600 cursor-pointer h-2 bg-slate-200 rounded"
+                />
+              </div>
+
+              {/* 2. Quality & KB Slider */}
+              <div className="flex flex-col gap-1">
+                <div className="flex justify-between text-xs">
+                  <span className="font-semibold text-slate-700">क्वालिटी व साइज़ एडजस्ट करें:</span>
+                  <span className="font-mono text-blue-600 font-bold bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                    {quality}%
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="2"
+                  max="100"
+                  value={quality}
+                  onChange={(e) => handleQualityChange(Number(e.target.value))}
+                  className="w-full accent-blue-600 cursor-pointer h-2 bg-slate-200 rounded"
+                />
+              </div>
+
+              {/* 3. Action Buttons */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1 border-t border-slate-200">
+                <button
+                  onClick={downloadJPG}
+                  className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-3 rounded-lg flex items-center justify-center gap-1.5 text-xs shadow-sm active:scale-95 transition"
+                >
+                  📥 सेव करें JPG ({formatSize(compressedSize)})
+                </button>
+                <button
+                  onClick={downloadPDF}
+                  className="bg-slate-700 hover:bg-slate-800 text-white font-semibold py-2 px-3 rounded-lg flex items-center justify-center gap-1.5 text-xs shadow-sm active:scale-95 transition"
+                >
+                  📄 PDF में सेव करें
+                </button>
+                <button
+                  onClick={handleShare}
+                  className="bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold py-2 px-3 rounded-lg flex items-center justify-center gap-1.5 text-xs border border-slate-300 active:scale-95 transition"
+                >
+                  🔗 शेयर करें
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}

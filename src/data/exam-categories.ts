@@ -7,6 +7,18 @@ export type ExamCategory = {
 
 export const examCategories: ExamCategory[] = [
   {
+    id: 'teaching',
+    name: 'Teaching / TET',
+    description: 'Teacher eligibility and recruitment examinations',
+    active: true,
+  },
+  {
+    id: 'police',
+    name: 'Police',
+    description: 'Police and related recruitment examinations',
+    active: true,
+  },
+  {
     id: 'ssc',
     name: 'SSC',
     description: 'Staff Selection Commission examinations',
@@ -16,6 +28,12 @@ export const examCategories: ExamCategory[] = [
     id: 'railway',
     name: 'Railway',
     description: 'Railway recruitment examinations',
+    active: true,
+  },
+  {
+    id: 'upsc',
+    name: 'UPSC',
+    description: 'Union Public Service Commission examinations',
     active: true,
   },
   {
@@ -30,18 +48,4 @@ export const examCategories: ExamCategory[] = [
     description: 'State-level government examinations',
     active: true,
   },
-  {
-    id: 'police',
-    name: 'Police',
-    description: 'Police and related recruitment examinations',
-    active: true,
-  },
-
-  {
-    id: 'upsc',
-    name: 'UPSC',
-    description: 'Union Public Service Commission examinations',
-    active: true
-  },
-
 ];

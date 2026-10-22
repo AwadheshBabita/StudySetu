@@ -11,7 +11,7 @@ export const metadata: Metadata = {
     "hindi english ocr tool",
     "free optical character recognition online",
     "receipt screenshot text extractor",
-    "convert scanned document to editable text"
+    "convert scanned document to editable text",
   ],
   alternates: {
     canonical: "https://examsewa.online/tools/ocr-scanner",

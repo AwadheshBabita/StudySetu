@@ -11,209 +11,469 @@ interface ToolItem {
   category: 'photo' | 'pdf' | 'doc_card' | 'utility';
   icon: string;
   link: string;
+  secondaryLink?: string;
+  secondaryName?: string;
   badge?: string;
   isTop10?: boolean;
 }
 
 const ALL_21_TOOLS: ToolItem[] = [
-  // --- 1. फोटो व हस्ताक्षर टूल्स ---
+  // ================= 12 ग्रीन मास्टर कार्ड्स (isTop10: true सुरक्षित) =================
   {
-    id: 'photo-name-date',
-    name: 'पासपोर्ट फोटो मेकर (नाम व तारीख)',
-    desc: 'सफेद पट्टी पर उम्मीदवार का नाम और DOP जोड़ें। 300 DPI सरकारी मानक।',
-    category: 'photo',
-    icon: '📛',
-    link: '/tools/photo-name-date',
-    badge: '300 DPI | DOP',
+    id: "photo-name-date",
+    name: "पासपोर्ट फोटो मेकर (नाम व तारीख)",
+    desc: "सफेद पट्टी पर उम्मीदवार का नाम और DOP जोड़ें। 300 DPI मानक।",
+    category: "photo",
+    icon: "📸",
+    link: "/tools/photo-name-date",
+    badge: "लोकप्रिय",
     isTop10: true
   },
   {
-    id: 'photo-resize',
-    name: 'एग्जाम स्पेशल फोटो रिसाइज़र',
-    desc: 'सादी फोटो को 3.5×4.5 सेमी, मनचाहे CM/MM/Px और 300/600 DPI में सेट करें।',
-    category: 'photo',
-    icon: '🖼️',
-    link: '/tools/photo-resize',
-    badge: 'सादी फोटो | 300 DPI',
+    id: "signature-resize",
+    name: "सिग्नेचर रिसाइज़र",
+    desc: "सरकारी फॉर्म हेतु हस्ताक्षर क्रॉप, व्हाइटन और 10-20 KB में सेट करें।",
+    category: "photo",
+    icon: "✍️",
+    link: "/tools/signature-resize",
+    badge: "आवश्यक",
     isTop10: true
   },
   {
-    id: 'signature-resize',
-    name: 'सिग्नेचर रिसाइज़र (A4 स्कैनर)',
-    desc: 'A4 पन्ने से दस्तखत काटें। डीप ब्लैक/ब्लू इंक व बैकग्राउंड क्लीनर।',
-    category: 'photo',
-    icon: '✍️',
-    link: '/tools/signature-resize',
-    badge: 'A4 फ्री क्रॉप',
-    isTop10: true
-  },
-  {
-    id: 'passport-photo-4x6-maker',
-    name: '4×6 पासपोर्ट फोटो शीट मेकर',
-    desc: 'Mr. Photo इंजन से 4×6 व A4 पेपर पर सेल-बाय-सेल फोटो प्रिंट शीट तैयार करें।',
-    category: 'photo',
-    icon: '🖨️',
-    link: '/tools/passport-photo-4x6-maker',
-    badge: 'Ultra HD 600 DPI',
-    isTop10: true
-  },
-  {
-    id: 'passport-grid-maker',
-    name: 'पासपोर्ट फोटो ग्रिड मेकर (A4)',
-    desc: 'A4 पेपर पर 6, 8, 12 या 24 फोटो का ग्रिड बनाकर प्रिंट करें।',
-    category: 'photo',
-    icon: '🔲',
-    link: '/tools/passport-grid-maker'
-  },
-  {
-    id: 'live-photo-capture',
-    name: 'लाइव वेबकैम फोटो कैप्चर',
-    desc: 'सीधे मोबाइल/वेबकैम से लाइव फोटो खींचें और भर्ती अनुपात में बदलें।',
-    category: 'photo',
-    icon: '📷',
-    link: '/tools/live-photo-capture'
-  },
-  {
-    id: 'exact-pixel-resize',
-    name: 'सटीक पिक्सेल रिसाइज़र',
-    desc: 'किसी भी फोटो को बिना रेश्यो बिगड़े कस्टम W×H पिक्सल में बदलें।',
-    category: 'photo',
-    icon: '📐',
-    link: '/tools/exact-pixel-resize'
-  },
-  {
-    id: 'exact-kb-compressor',
-    name: 'सटीक KB फोटो कंप्रेसर',
-    desc: 'क्वालिटी खोए बिना फोटो को 20 KB, 50 KB या 100 KB में लॉक करें।',
-    category: 'photo',
-    icon: '🗜️',
-    link: '/tools/exact-kb-compressor'
-  },
-
-  // --- 2. डॉक्यूमेंट, मार्कशीट व कार्ड टूल्स ---
-  {
-    id: 'document-scanner',
-    name: 'स्मार्ट डॉक्यूमेंट स्कैनर',
-    desc: 'मार्कशीट के पीलेपन व परछाई को साफ करके A4 में फिट करें।',
-    category: 'doc_card',
-    icon: '📑',
-    link: '/tools/document-scanner',
-    badge: 'A4 क्लीनर',
-    isTop10: true
-  },
-  {
-    id: 'id-card-joiner',
-    name: 'आईडी कार्ड जॉइनर (Front+Back)',
-    desc: 'पहचान पत्र के दोनों हिस्सों को एक ही A4 पेज पर जोड़ें।',
-    category: 'doc_card',
-    icon: '🪪',
-    link: '/tools/id-card-joiner',
-    badge: 'Front + Back',
-    isTop10: true
-  },
-  {
-    id: 'id-card-cropper',
-    name: 'आईडी कार्ड सिंगल साइड क्रॉपर',
-    desc: 'कार्ड्स को सीधे मानक पॉकेट साइज़ में क्रॉप करें।',
-    category: 'doc_card',
-    icon: '💳',
-    link: '/tools/id-card-cropper'
-  },
-  {
-    id: 'certificate-fitter',
-    name: 'सर्टिफिकेट A4 फिटर',
-    desc: 'जाति, निवास, EWS प्रमाण पत्रों को सटीक A4 साइज में लॉक करें।',
-    category: 'doc_card',
-    icon: '📜',
-    link: '/tools/certificate-fitter'
-  },
-
-  // --- 3. पीडीएफ टूल्स ---
-  {
-    id: 'image-to-pdf',
+    id: "jpg-to-pdf",
     name: "JPG से PDF कनवर्टर",
-    desc: "कई तस्वीरों को एक साथ जोड़कर मानक A4 साइज़ PDF में बदलें (तय KB लिमिट के साथ)।",
-    category: 'pdf',
-    icon: '📄',
-    link: '/tools/jpg-to-pdf',
-    badge: 'मानक A4 PDF',
+    desc: "दस्तावेज की फोटो को सरकारी मानक A4 PDF में तुरंत बदलें।",
+    category: "pdf",
+    icon: "📄",
+    link: "/tools/jpg-to-pdf",
+    badge: "लोकप्रिय",
     isTop10: true
   },
   {
-    id: 'pdf-compressor',
-    name: 'सरकारी फॉर्म PDF कंप्रेसर',
-    desc: 'बड़ी पीडीएफ को 100 KB, 200 KB या 300 KB सीमा में लाएँ।',
-    category: 'pdf',
-    icon: '📉',
-    link: '/tools/pdf-compressor',
-    badge: '100-300 KB',
+    id: "pdf-to-jpg",
+    name: "PDF से JPG कनवर्टर",
+    desc: "PDF के सभी पेजों को हाई रेजोल्यूशन JPG फोटो में अलग करें।",
+    category: "pdf",
+    icon: "🖼️",
+    link: "/tools/pdf-to-jpg",
     isTop10: true
   },
   {
-    id: 'pdf-merge-split',
-    name: 'PDF मर्ज व स्प्लिट',
-    desc: 'पीडीएफ फाइलों को जोड़ें या जरूरी पन्ने अलग करें।',
-    category: 'pdf',
-    icon: '📑',
-    link: '/tools/pdf-merge-split',
+    id: "passport-photo-4x6-maker",
+    name: "4×6 पासपोर्ट फोटो शीट मेकर",
+    desc: "4x6 फोटो पेपर पर 6 या 8 पासपोर्ट फोटो प्रिंट लेआउट बनाएं।",
+    category: "photo",
+    icon: "📇",
+    link: "/tools/passport-photo-4x6-maker",
     isTop10: true
   },
   {
-    id: 'pdf-to-jpg',
-    name: 'PDF से JPG कनवर्टर',
-    desc: 'पीडीएफ के प्रत्येक पेज को उच्च गुणवत्ता JPG में बदलें।',
-    category: 'pdf',
-    icon: '🖼️',
-    link: '/tools/pdf-to-jpg'
+    id: "document-scanner",
+    name: "स्मार्ट डॉक्यूमेंट स्कैनर",
+    desc: "कैमरे या फोटो से मोबाइल दस्तावेज स्कैन करें, किनारा छांटें और साफ करें।",
+    category: "doc_card",
+    icon: "📠",
+    link: "/tools/document-scanner",
+    badge: "स्मार्ट",
+    isTop10: true
   },
   {
-    id: 'pdf-password',
-    name: 'PDF पासवर्ड रिमूवर / प्रोटेक्ट',
-    desc: 'डॉक्यूमेंट या बैंक पीडीएफ से पासवर्ड हटाएं या सुरक्षित करें।',
-    category: 'pdf',
-    icon: '🔓',
-    link: '/tools/pdf-password'
+    id: "id-card-joiner",
+    name: "आईडी कार्ड जॉइनर (Front+Back)",
+    desc: "आधार, पैन या वोटर कार्ड के आगे और पीछे के भाग को एक पेज पर जोड़ें।",
+    category: "doc_card",
+    icon: "💳",
+    link: "/tools/id-card-joiner",
+    badge: "लोकप्रिय",
+    isTop10: true
+  },
+  {
+    id: "pdf-compressor",
+    name: "PDF एवं इमेज कंप्रेसर",
+    desc: "सरकारी फॉर्म व ऑनलाइन अपलोड हेतु PDF और फोटो का साइज तुरंत घटाएं।",
+    category: "pdf",
+    icon: "📉",
+    link: "/tools/compressor",
+    badge: "टॉप",
+    isTop10: true
+  },
+  {
+    id: "pdf-merge-split",
+    name: "PDF मर्ज व स्प्लिट",
+    desc: "PDF फाइलों को जोड़ने और पन्ने अलग करने का संपूर्ण मास्टर टूल।",
+    category: "pdf",
+    icon: "📂",
+    link: "/tools/pdf-merge-split",
+    badge: "मास्टर",
+    isTop10: true
+  },
+  {
+    id: "pdf-password",
+    name: "PDF लॉक व अनलॉक मास्टर",
+    desc: "PDF पर पासवर्ड लॉक लगाने और हटाने का ऑल-इन-वन टूल।",
+    category: "pdf",
+    icon: "🔑",
+    link: "/tools/pdf-password",
+    badge: "मास्टर",
+    isTop10: true
+  },
+  {
+    id: "age-calculator",
+    name: "सरकारी परीक्षा आयु कैलकुलेटर",
+    desc: "फॉर्म कट-ऑफ तिथि के अनुसार वर्ष, माह और दिन की सटीक गणना करें।",
+    category: "utility",
+    icon: "🎂",
+    link: "/tools/age-calculator",
+    badge: "सटीक",
+    isTop10: true
+  },
+  {
+    id: "document-crop",
+    name: "डॉक्यूमेंट क्रॉपर",
+    desc: "दस्तावेजों, मार्कशीट व प्रमाण-पत्रों के अनचाहे किनारे आसानी से काटें।",
+    category: "photo",
+    icon: "✂️",
+    link: "/tools/document-crop",
+    isTop10: true
   },
 
-  // --- 4. यूटिलिटीज ---
+  // ================= 45 शुद्ध सिंगल नीले टूल्स (प्रत्येक टूल का डायरेक्ट पेज) =================
+  // 1. फोटो व हस्ताक्षर टूल्स (21 टूल्स)
   {
-    id: 'age-calculator',
-    name: 'सरकारी परीक्षा आयु कैलकुलेटर',
-    desc: 'कट-ऑफ तारीख के अनुसार अपनी सटीक उम्र (वर्ष, माह, दिन) निकालें।',
-    category: 'utility',
-    icon: '🎂',
-    link: '/tools/age-calculator',
-    badge: 'Age Counter',
-    isTop10: true
+    id: "blue-photo-name-date",
+    name: "पासपोर्ट फोटो मेकर (नाम व तारीख)",
+    desc: "सफेद पट्टी पर उम्मीदवार का नाम और DOP जोड़ें। 300 DPI मानक।",
+    category: "photo",
+    icon: "📸",
+    link: "/tools/photo-name-date",
+    badge: "लोकप्रिय"
+  },
+  {
+    id: "blue-signature-resize",
+    name: "सिग्नेचर रिसाइज़र",
+    desc: "सरकारी फॉर्म हेतु हस्ताक्षर क्रॉप, व्हाइटन और 10-20 KB में सेट करें।",
+    category: "photo",
+    icon: "✍️",
+    link: "/tools/signature-resize",
+    badge: "आवश्यक"
+  },
+  {
+    id: "blue-signature-crop",
+    name: "सिग्नेचर क्रॉपर",
+    desc: "दस्तावेज या फॉर्म से सिर्फ हस्ताक्षर का भाग सही अनुपात में क्रॉप करें।",
+    category: "photo",
+    icon: "✂️",
+    link: "/tools/signature-crop"
+  },
+  {
+    id: "blue-exact-pixel-resize",
+    name: "सटीक पिक्सेल रिसाइज़र",
+    desc: "मनचाही चौड़ाई और ऊँचाई (px/cm/mm) में बिना क्वालिटी खोए बदलें।",
+    category: "photo",
+    icon: "📐",
+    link: "/tools/exact-pixel-resize",
+    badge: "सटीक"
+  },
+  {
+    id: "blue-exact-kb-compressor",
+    name: "सटीक KB कंप्रेसर",
+    desc: "फोटो का साइज ठीक 20KB, 50KB या 100KB फिक्स करें।",
+    category: "photo",
+    icon: "🗜️",
+    link: "/tools/exact-kb-compressor",
+    badge: "फास्ट"
+  },
+  {
+    id: "blue-application-declaration-maker",
+    name: "आवेदन एवं घोषणा पत्र मेकर",
+    desc: "बैंक, पुलिस, स्कूल और तहसील हेतु प्रार्थना-पत्र व स्व-घोषणा A4 प्रिंट तैयार करें।",
+    category: "document",
+    icon: "📝",
+    link: "/tools/application-declaration-maker"
+  },
+  {
+    id: "blue-word-to-pdf-jpg",
+    name: "Word to PDF / JPG कनवर्टर",
+    desc: "Word (.docx/.doc) को सभी भारतीय भाषाओं व लेआउट सहित PDF या JPG में बदलें।",
+    category: "document",
+    icon: "📘",
+    link: "/tools/word-to-pdf-jpg"
   },
 
-  // --- 11वां मास्टर टूल ---
   {
-    id: 'photo-crop',
-    name: 'फोटो एंड डॉक क्रॉपर',
-    desc: 'A4 शीट से पासपोर्ट फोटो या कार्ड अलग काटें। सटीक KB कंप्रेसर व 300 DPI।',
-    category: 'photo',
-    icon: '✂️',
-    link: '/tools/photo-crop',
-    badge: '300 DPI | सटीक KB',
-    isTop10: true
+    id: "blue-image-compressor",
+    name: "स्मार्ट इमेज कंप्रेसर",
+    desc: "बड़ी फोटो को उच्च गुणवत्ता बनाए रखते हुए तुरंत छोटा करें।",
+    category: "photo",
+    icon: "⚡",
+    link: "/tools/image-compressor"
+  },
+  {
+    id: "blue-image-format-converter",
+    name: "इमेज फॉर्मेट कनवर्टर",
+    desc: "JPG, PNG, WEBP को एक-दूसरे में तुरंत बदलें।",
+    category: "photo",
+    icon: "🔄",
+    link: "/tools/image-format-converter"
+  },
+  {
+    id: "blue-passport-photo-4x6-maker",
+    name: "4×6 पासपोर्ट फोटो शीट मेकर",
+    desc: "4x6 फोटो पेपर पर 6 या 8 पासपोर्ट फोटो प्रिंट लेआउट बनाएं।",
+    category: "photo",
+    icon: "📇",
+    link: "/tools/passport-photo-4x6-maker"
+  },
+  {
+    id: "blue-live-photo-capture",
+    name: "लाइव वेबकैम फोटो कैप्चर",
+    desc: "वेबकैम से लाइव पासपोर्ट फोटो कैप्चर करें और बैकग्राउंड सेट करें।",
+    category: "photo",
+    icon: "📷",
+    link: "/tools/live-photo-capture"
+  },
+  {
+    id: "blue-ssc-photo-maker",
+    name: "SSC फोटो मेकर",
+    desc: "कर्मचारी चयन आयोग (SSC CGL/CHSL/GD) के सख्त नियमों अनुसार फोटो।",
+    category: "photo",
+    icon: "🏛️",
+    link: "/tools/ssc-photo-maker"
+  },
+  {
+    id: "blue-rrb-railway-photo-maker",
+    name: "RRB रेलवे फोटो मेकर",
+    desc: "रेलवे भर्ती बोर्ड (ALP, NTPC, Group D) हेतु फोटो व हस्ताक्षर गाइड।",
+    category: "photo",
+    icon: "🚆",
+    link: "/tools/rrb-railway-photo-maker"
+  },
+  {
+    id: "blue-up-police-photo-resizer",
+    name: "UP पुलिस फोटो रिसाइज़र",
+    desc: "उत्तर प्रदेश पुलिस भर्ती (कांस्टेबल/SI) विशेष फोटो व साइन रिसाइज़र।",
+    category: "photo",
+    icon: "👮",
+    link: "/tools/up-police-photo-resizer"
+  },
+  {
+    id: "blue-agniveer-live-photo",
+    name: "अग्निवीर लाइव फोटो टूल",
+    desc: "भारतीय सेना, नौसेना व वायुसेना अग्निवीर भर्ती मानक फोटो।",
+    category: "photo",
+    icon: "🎖️",
+    link: "/tools/agniveer-live-photo"
+  },
+  {
+    id: "blue-mpsc-photo-resizer",
+    name: "MPSC फोटो रिसाइज़र",
+    desc: "महाराष्ट्र लोक सेवा आयोग (MPSC) विशिष्ट डायमेंशन और साइज।",
+    category: "photo",
+    icon: "📜",
+    link: "/tools/mpsc-photo-resizer"
+  },
+  {
+    id: "blue-wbpsc-photo-resizer",
+    name: "WBPSC फोटो मेकर",
+    desc: "पश्चिम बंगाल पीएससी फॉर्म हेतु फोटो और सिग्नेचर रिसाइज़र।",
+    category: "photo",
+    icon: "🏢",
+    link: "/tools/wbpsc-photo-resizer"
+  },
+  {
+    id: "blue-tnpsc-photo-maker",
+    name: "TNPSC तमिलनाडु फोटो मेकर",
+    desc: "तमिलनाडु लोक सेवा आयोग भर्ती नियमों अनुसार फोटो मेकर।",
+    category: "photo",
+    icon: "🏛️",
+    link: "/tools/tnpsc-photo-maker"
   },
 
+  // 2. शुद्ध सिंगल PDF टूल्स (11 टूल्स)
   {
-    id: 'exam-presets',
-    name: 'ऑल इंडिया एग्जाम साइज प्रीसेट्स',
-    desc: 'SSC, UPSC, रेलवे, पुलिस व बैंकिंग साइज नियम।',
-    category: 'utility',
-    icon: '📋',
-    link: '/tools/exam-presets'
+    id: "blue-jpg-to-pdf",
+    name: "JPG से PDF कनवर्टर",
+    desc: "दस्तावेज की फोटो को सरकारी मानक A4 PDF में तुरंत बदलें।",
+    category: "pdf",
+    icon: "📄",
+    link: "/tools/jpg-to-pdf",
+    badge: "लोकप्रिय"
   },
   {
-    id: 'csc-corner',
-    name: 'सीएससी / जनसेवा केंद्र हब',
-    desc: 'कैफे व जनसेवा केंद्र संचालकों के लिए जरूरी फॉर्म्स व लिंक्स।',
-    category: 'utility',
-    icon: '🏪',
-    link: '/tools/csc-corner'
+    id: "blue-pdf-to-jpg",
+    name: "PDF से JPG कनवर्टर",
+    desc: "PDF के सभी पेजों को हाई रेजोल्यूशन JPG फोटो में अलग करें।",
+    category: "pdf",
+    icon: "🖼️",
+    link: "/tools/pdf-to-jpg"
+  },
+  {
+    id: "blue-pdf-merge",
+    name: "PDF मर्ज",
+    desc: "कई अलग-अलग PDF फाइलों को सीधे एक ही PDF फाइल में जोड़ें।",
+    category: "pdf",
+    icon: "📑",
+    link: "/tools/pdf-merge"
+  },
+  {
+    id: "blue-pdf-split",
+    name: "PDF स्प्लिट",
+    desc: "बड़ी PDF फाइल में से अपनी पसंद के पेज काटकर अलग PDF बनाएं।",
+    category: "pdf",
+    icon: "✂️",
+    link: "/tools/pdf-split"
+  },
+  {
+    id: "blue-pdf-protect",
+    name: "PDF पासवर्ड लॉक",
+    desc: "अपनी गोपनीय PDF फाइल पर सुरक्षित पासवर्ड लॉक लगाएं।",
+    category: "pdf",
+    icon: "🔒",
+    link: "/tools/pdf-protect"
+  },
+  {
+    id: "blue-pdf-unlock",
+    name: "PDF पासवर्ड अनलॉक",
+    desc: "पासवर्ड सुरक्षित PDF से लॉक हटाकर सामान्य PDF बनाएं।",
+    category: "pdf",
+    icon: "🔓",
+    link: "/tools/pdf-unlock"
+  },
+  {
+    id: "blue-pdf-compressor",
+    name: "PDF कंप्रेसर (टारगेट KB व फॉर्म्स)",
+    desc: "UPSC, SSC व सरकारी फॉर्म हेतु PDF फाइल का साइज 100KB-500KB में तुरंत घटाएं।",
+    category: "pdf",
+    icon: "📉",
+    link: "/tools/pdf-compressor",
+    badge: "फास्ट"
+  },
+  {
+    id: "blue-pdf-rotate-delete",
+    name: "PDF रोटेट व डिलीट",
+    desc: "उल्टे पन्नों को सीधा घुमाएं और गैर-जरूरी पन्ने PDF से हटाएं।",
+    category: "pdf",
+    icon: "🔄",
+    link: "/tools/pdf-rotate-delete"
+  },
+  {
+    id: "blue-pdf-watermark",
+    name: "PDF वॉटरमार्क एडर",
+    desc: "अपने दस्तावेजों पर सुरक्षा वॉटरमार्क या मुहर टेक्स्ट लगाएं।",
+    category: "pdf",
+    icon: "🏷️",
+    link: "/tools/pdf-watermark"
+  },
+
+  // 3. डॉक्यूमेंट व कार्ड टूल्स (6 टूल्स)
+  {
+    id: "blue-document-scanner",
+    name: "स्मार्ट डॉक्यूमेंट स्कैनर",
+    desc: "कैमरे या फोटो से मोबाइल दस्तावेज स्कैन करें, किनारा छांटें और साफ करें।",
+    category: "doc_card",
+    icon: "📠",
+    link: "/tools/document-scanner",
+    badge: "स्मार्ट"
+  },
+  {
+    id: "blue-image-scanner",
+    name: "इमेज स्कैनर टूल",
+    desc: "दस्तावेज की फोटो से शैडो व पीलापन हटाकर A4 डॉक बनाएं।",
+    category: "doc_card",
+    icon: "🖨️",
+    link: "/tools/image-scanner"
+  },
+  {
+    id: "blue-id-card-joiner",
+    name: "आईडी कार्ड जॉइनर (Front+Back)",
+    desc: "आधार, पैन या वोटर कार्ड के आगे और पीछे के भाग को एक पेज पर जोड़ें।",
+    category: "doc_card",
+    icon: "💳",
+    link: "/tools/id-card-joiner",
+    badge: "लोकप्रिय"
+  },
+  {
+    id: "blue-id-card-cropper",
+    name: "आईडी कार्ड क्रॉपर",
+    desc: "दस्तावेज से सही अनुपात में आईडी कार्ड का हिस्सा ऑटो-क्रॉप करें।",
+    category: "doc_card",
+    icon: "✂️",
+    link: "/tools/id-card-cropper"
+  },
+  {
+    id: "blue-certificate-fitter",
+    name: "सर्टिफिकेट फिटर",
+    desc: "मार्कशीट व सर्टिफिकेट को सरकारी पोर्टल के 100-300 KB में सेट करें।",
+    category: "doc_card",
+    icon: "📜",
+    link: "/tools/certificate-fitter"
+  },
+  {
+    id: "blue-bihar-rtps-document-compressor",
+    name: "बिहार RTPS कंप्रेसर",
+    desc: "बिहार जाति, आय, निवास व सर्विस प्लस पोर्टल हेतु डॉक्यूमेंट रिसाइज़र।",
+    category: "doc_card",
+    icon: "🏛️",
+    link: "/tools/bihar-rtps-document-compressor"
+  },
+
+  // 4. यूटिलिटीज व सहायक टूल्स (7 टूल्स)
+  {
+    id: "blue-age-calculator",
+    name: "सरकारी परीक्षा आयु कैलकुलेटर",
+    desc: "फॉर्म कट-ऑफ तिथि के अनुसार वर्ष, माह और दिन की सटीक गणना करें।",
+    category: "utility",
+    icon: "🎂",
+    link: "/tools/age-calculator",
+    badge: "सटीक"
+  },
+  {
+    id: "blue-ocr-scanner",
+    name: "ओसीआर टेक्स्ट स्कैनर",
+    desc: "फोटो व मार्कशीट से हिंदी और अंग्रेजी टेक्स्ट सीधे कॉपी करें।",
+    category: "utility",
+    icon: "🔍",
+    link: "/tools/ocr-scanner"
+  },
+  {
+    id: "blue-compressor",
+    name: "ऑल-इन-वन कंप्रेसर",
+    desc: "इमेज और फाइल्स को बिना तकनीकी परेशानी के तुरंत कंप्रेस करें।",
+    category: "utility",
+    icon: "⚙️",
+    link: "/tools/compressor"
+  },
+  {
+    id: "blue-csc-corner",
+    name: "सीएससी / जनसेवा केंद्र हब",
+    desc: "कैफे व जनसेवा केंद्र संचालकों हेतु उपयोगी फॉर्म टूल्स का संग्रह।",
+    category: "utility",
+    icon: "🏪",
+    link: "/tools/csc-corner"
+  },
+  {
+    id: "blue-exam-presets",
+    name: "एग्जाम साइज प्रीसेट्स",
+    desc: "विभिन्न सरकारी भर्तियों के पहले से बने फोटो व साइन साइज प्रीसेट्स।",
+    category: "utility",
+    icon: "📋",
+    link: "/tools/exam-presets"
+  },
+  {
+    id: "blue-exam-requirements",
+    name: "एग्जाम रिक्वायरमेंट्स चेकर",
+    desc: "नवीनतम सरकारी फॉर्म के लिए जरूरी फोटो व डॉक्यूमेंट नियम जांचें।",
+    category: "utility",
+    icon: "✅",
+    link: "/tools/exam-requirements"
+  },
+  {
+    id: "blue-exam-guide",
+    name: "एग्जाम गाइड",
+    desc: "सरकारी फॉर्म ऑनलाइन भरते समय होने वाली गलतियों से बचने की गाइड।",
+    category: "utility",
+    icon: "📖",
+    link: "/tools/exam-guide"
   }
 ];
 
@@ -257,6 +517,7 @@ export default function HomePage() {
 
   const filteredTools = useMemo(() => {
     return ALL_21_TOOLS.filter((tool) => {
+      if (tool.isTop10) return false;
       const q = searchQuery.toLowerCase().trim();
       const matchesSearch =
         q === '' ||
@@ -330,24 +591,44 @@ export default function HomePage() {
             सटीक पिक्सेल, 300/600 DPI हेडर, मनचाही KB और A4 PDF — 100% सरकारी वैलिडेटर पास आउटपुट।
           </p>
 
-          <div className="mt-5 relative max-w-lg mx-auto">
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="टूल खोजें (जैसे: Signature, Photo, ID Card, PDF, Age...)"
-              className="w-full px-4 py-3 pl-11 text-xs sm:text-sm bg-white border-2 border-slate-800 rounded-xl shadow-xs focus:outline-hidden focus:border-blue-600 focus:ring-2 focus:ring-blue-100 font-bold"
-            />
-            <span className="absolute left-3.5 top-3 text-base text-slate-400">🔍</span>
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery('')}
-                className="absolute right-3 top-3 text-xs text-slate-400 hover:text-slate-600 font-bold cursor-pointer"
-              >
-                ✕
-              </button>
-            )}
+      {/* राज्य-स्तरीय परीक्षा गाइड पट्टी */}
+      <div className="w-full max-w-4xl mx-auto px-2 mt-4 mb-2">
+        <div className="w-full bg-gradient-to-r from-[#0b132b] via-[#1c2d5a] to-[#0b132b] border border-blue-900/60 rounded-2xl p-3 sm:p-4 text-white shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-all">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-slate-800/80 border border-slate-700/60 flex items-center justify-center shrink-0 shadow-inner">
+              <svg className="w-6 h-6 text-slate-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 21h18" />
+                <path d="M5 21V10" />
+                <path d="M9 21V10" />
+                <path d="M15 21V10" />
+                <path d="M19 21V10" />
+                <path d="M3 10h18" />
+                <path d="m12 3 9 5H3l9-5z" />
+              </svg>
+            </div>
+            <div>
+              <div className="flex items-center gap-2 mb-0.5">
+                <span className="bg-[#f59e0b] text-black text-[10px] font-black px-1.5 py-0.5 rounded tracking-wider uppercase shadow-sm">
+                  खास गाइड
+                </span>
+                <h3 className="text-[#fbbf24] font-black text-sm sm:text-base tracking-tight drop-shadow-sm">
+                  राज्य-स्तरीय परीक्षा गाइड व प्रीसेट्स
+                </h3>
+              </div>
+              <p className="text-xs text-slate-300 font-medium line-clamp-1 sm:line-clamp-none">
+                MPSC (महाराष्ट्र), WBPSC (बंगाल), TNPSC (तमिलनाडु) व रेलवे भर्ती के सटीक फोटो व साइन नियम
+              </p>
+            </div>
           </div>
+          <Link 
+            href="/tools/exam-guide"
+            className="self-end sm:self-center bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500 hover:from-amber-300 hover:to-orange-400 text-black font-black text-xs px-3.5 py-2 rounded-lg shadow-md transition active:scale-95 flex items-center gap-1.5 shrink-0 whitespace-nowrap"
+          >
+            <span>नियम देखें व साइन करें</span>
+            <span className="text-sm leading-none">→</span>
+          </Link>
+        </div>
+      </div>
         </div>
 
         {/* 💥 सेक्शन 1: 11 मास्टर कार्ड्स (ग्रीन ग्रेडिएंट + चमकदार बोल्ड व्हाइट) */}
@@ -368,74 +649,153 @@ export default function HomePage() {
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {ALL_21_TOOLS.filter((t) => t.isTop10).map((tool) => (
-                <Link
-                  key={tool.id}
-                  href={tool.link}
-                  className="group p-4 rounded-2xl border-2 border-slate-900 bg-emerald-700 bg-gradient-to-br from-emerald-600 via-emerald-700 to-teal-800 text-white shadow-md hover:shadow-xl hover:-translate-y-1 transition-all duration-200 flex flex-col justify-between cursor-pointer"
-                >
-                  <div>
-                    <div className="flex items-center gap-2.5">
-                      <span className="w-8 h-8 rounded-lg bg-white/15 backdrop-blur-xs border border-white/30 flex items-center justify-center text-lg shrink-0 group-hover:scale-105 transition-transform shadow-xs">
-                        {tool.icon}
-                      </span>
-                      <h2 className="text-base sm:text-lg font-black text-white leading-snug tracking-normal drop-shadow-sm">
-                        {tool.name}
-                      </h2>
-                    </div>
-                    <p className="mt-2 text-xs sm:text-sm text-emerald-50/95 font-medium leading-relaxed line-clamp-2">
-                      {tool.desc}
-                    </p>
-                  </div>
+              {ALL_21_TOOLS.filter((t) => t.isTop10).map((tool) => {
+                if (tool.secondaryLink) {
+                  return (
+                    <div
+                      key={tool.id}
+                      className="group p-4 rounded-2xl border-2 border-slate-900 bg-emerald-700 bg-gradient-to-br from-emerald-600 via-emerald-700 to-teal-800 text-white shadow-md hover:shadow-xl transition-all duration-200 flex flex-col justify-between"
+                    >
+                      <div>
+                        <div className="flex items-center gap-2.5">
+                          <span className="w-8 h-8 rounded-lg bg-white/15 backdrop-blur-xs border border-white/30 flex items-center justify-center text-lg shrink-0 shadow-xs">
+                            {tool.icon}
+                          </span>
+                          <h2 className="text-base sm:text-lg font-black text-white leading-snug tracking-normal drop-shadow-sm">
+                            {tool.name}
+                          </h2>
+                        </div>
+                        <p className="mt-2 text-xs sm:text-sm text-emerald-50/95 font-medium leading-relaxed line-clamp-2">
+                          {tool.desc}
+                        </p>
+                      </div>
 
-                  <div className="mt-3.5 pt-2.5 border-t border-white/20 flex items-center justify-between">
-                    {tool.badge && (
-                      <span className="text-[9px] font-black px-2 py-0.5 rounded border bg-white/20 text-white border-white/30 backdrop-blur-xs shadow-2xs">
-                        {tool.badge}
+                      <div className="mt-3.5 pt-2.5 border-t border-white/20 grid grid-cols-2 gap-2">
+                        <Link
+                          href={tool.link}
+                          className="py-2 px-2 rounded-xl bg-white/20 hover:bg-white text-white hover:text-slate-950 font-black text-xs text-center border border-white/30 shadow-xs active:scale-95 transition flex items-center justify-center gap-1"
+                        >
+                          📄 PDF कंप्रेस
+                        </Link>
+                        <Link
+                          href={tool.secondaryLink}
+                          className="py-2 px-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs text-center shadow-xs active:scale-95 transition flex items-center justify-center gap-1"
+                        >
+                          🖼️ Image कंप्रेस
+                        </Link>
+                      </div>
+                    </div>
+                  );
+                }
+
+                return (
+                  <Link
+                    key={tool.id}
+                    href={tool.link}
+                    className="group p-4 rounded-2xl border-2 border-slate-900 bg-emerald-700 bg-gradient-to-br from-emerald-600 via-emerald-700 to-teal-800 text-white shadow-md hover:shadow-xl hover:-translate-y-1 transition-all duration-200 flex flex-col justify-between cursor-pointer"
+                  >
+                    <div>
+                      <div className="flex items-center gap-2.5">
+                        <span className="w-8 h-8 rounded-lg bg-white/15 backdrop-blur-xs border border-white/30 flex items-center justify-center text-lg shrink-0 group-hover:scale-105 transition-transform shadow-xs">
+                          {tool.icon}
+                        </span>
+                        <h2 className="text-base sm:text-lg font-black text-white leading-snug tracking-normal drop-shadow-sm">
+                          {tool.name}
+                        </h2>
+                      </div>
+                      <p className="mt-2 text-xs sm:text-sm text-emerald-50/95 font-medium leading-relaxed line-clamp-2">
+                        {tool.desc}
+                      </p>
+                    </div>
+
+                    <div className="mt-3.5 pt-2.5 border-t border-white/20 flex items-center justify-between">
+                      {tool.badge && (
+                        <span className="text-[9px] font-black px-2 py-0.5 rounded border bg-white/20 text-white border-white/30 backdrop-blur-xs shadow-2xs">
+                          {tool.badge}
+                        </span>
+                      )}
+                      <span className="text-[11px] font-black text-white group-hover:translate-x-1 transition-transform ml-auto flex items-center gap-0.5 drop-shadow-xs">
+                        खोलें →
                       </span>
-                    )}
-                    <span className="text-[11px] font-black text-white group-hover:translate-x-1 transition-transform ml-auto flex items-center gap-0.5 drop-shadow-xs">
-                      खोलें →
-                    </span>
-                  </div>
-                </Link>
-              ))}
+                    </div>
+                  </Link>
+                );
+              })}
             </div>
           </section>
         )}
 
-        {/* 💥 सेक्शन 2: 21 टूल्स डायरेक्टरी (रॉयल ब्लू ग्रेडिएंट + चमकदार बोल्ड व्हाइट) */}
-        <section className="pt-2 border-t border-slate-200">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
-            <div>
-              <span className="text-sm sm:text-base font-black text-slate-950 dark:text-slate-950 uppercase tracking-wide block">
-                {searchQuery ? `सर्च परिणाम (${filteredTools.length})` : '📑 सभी मास्टर टूल्स डायरेक्टरी'}
-              </span>
-              <span className="text-xs text-slate-500 font-medium">
-                सरकारी एग्जाम, फॉर्म व कैफे के सभी टूल्स की पूरी सूची
-              </span>
+        {/* 💥 नया सेक्शन: छात्र एवं परीक्षा कैलकुलेटर हब बैनर */}
+        <section className="my-5">
+          <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 rounded-3xl p-5 sm:p-6 text-white border border-indigo-500/30 shadow-xl relative overflow-hidden flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="space-y-1.5">
+              <div className="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full text-[11px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-400/30">
+                <span>🔬</span> ACADEMIC & SCIENCE SUITE
+              </div>
+              <h3 className="text-lg sm:text-xl font-black tracking-tight text-white">छात्र एवं परीक्षा कैलकुलेटर हब</h3>
+              <p className="text-xs text-slate-300">केमिस्ट्री समीकरण, फिजिक्स न्यूमेरिकल, मैथ स्टेप-सॉल्वर एवं CGPA कनवर्टर</p>
+              <div className="flex flex-wrap gap-2 pt-1">
+                <span className="text-[10px] bg-white/10 px-2 py-0.5 rounded-md text-slate-200">⚗️ केमिस्ट्री</span>
+                <span className="text-[10px] bg-white/10 px-2 py-0.5 rounded-md text-slate-200">⚡ फिजिक्स</span>
+                <span className="text-[10px] bg-white/10 px-2 py-0.5 rounded-md text-slate-200">📐 मैथ</span>
+                <span className="text-[10px] bg-white/10 px-2 py-0.5 rounded-md text-slate-200">🎓 CGPA स्कैनर</span>
+              </div>
+            </div>
+            <Link 
+              href="/calculators" 
+              className="inline-flex items-center justify-center gap-2 bg-indigo-500 hover:bg-indigo-600 text-white font-bold text-xs sm:text-sm px-5 py-3 rounded-2xl shadow-lg transition active:scale-95 shrink-0"
+            >
+              <span>कैलकुलेटर हब खोलें</span>
+              <span>→</span>
+            </Link>
+          </div>
+        </section>
+
+        {/* 💥 सेक्शन 2: 21 टूल्स डायरेक्टरी (रॉयल गोल्डन / एम्बर कार्ड स्टाइल) */}
+        <section className="pt-4 border-t border-slate-200 mb-6">
+          <div className="rounded-3xl p-5 sm:p-7 text-center shadow-lg border border-amber-900/30 relative overflow-hidden my-2"
+               style={{ background: "radial-gradient(circle at 50% 20%, #3d1b06 0%, #200d02 60%, #120701 100%)" }}>
+            
+            {/* शीर्ष बैज */}
+            <div className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full text-[11px] font-bold tracking-wide border border-amber-500/40 bg-amber-500/10 text-amber-300 shadow-inner mb-3">
+              <span>📑</span> ALL-IN-ONE DIRECTORY
             </div>
 
-            <div className="flex flex-wrap gap-1.5">
+            {/* मुख्य शीर्षक */}
+            <h3 className="text-xl sm:text-2xl font-black text-white tracking-tight leading-snug">
+              {searchQuery ? `सर्च परिणाम (${filteredTools.length})` : "सभी मास्टर टूल्स डायरेक्टरी"}
+            </h3>
+
+            {/* सब-टाइटल */}
+            <p className="text-xs sm:text-sm text-amber-100/70 font-medium mt-1.5 max-w-lg mx-auto leading-relaxed">
+              सरकारी एग्जाम, फॉर्म व कैफे के सभी टूल्स की पूरी सूची
+            </p>
+
+            {/* फ़िल्टर टैब्स (हॉरिज़ॉन्टल स्क्रॉल व ग्लास बटन) */}
+            <div className="mt-5 flex items-center justify-center gap-2 overflow-x-auto pb-1 no-scrollbar flex-wrap">
               {[
-                { id: 'all', label: 'सभी' },
-                { id: 'photo', label: '📷 फोटो व साइन' },
-                { id: 'doc_card', label: '🪪 डॉक्यूमेंट व कार्ड' },
-                { id: 'pdf', label: '📄 PDF टूल्स' },
-                { id: 'utility', label: '⚙️ यूटिलिटीज' }
-              ].map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => setSelectedCategory(tab.id as any)}
-                  className={`px-2.5 py-1 text-xs font-bold rounded-lg cursor-pointer transition-all ${
-                    selectedCategory === tab.id
-                      ? 'bg-slate-900 text-white shadow-xs'
-                      : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-100'
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
+                { id: "all", label: "सभी" },
+                { id: "photo", label: "📷 फोटो व साइन" },
+                { id: "doc_card", label: "🪪 डॉक्यूमेंट व कार्ड" },
+                { id: "pdf", label: "📄 PDF टूल्स" },
+                { id: "utility", label: "⚙️ यूटिलिटीज" }
+              ].map((tab) => {
+                const isActive = selectedCategory === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => setSelectedCategory(tab.id as any)}
+                    className={`whitespace-nowrap px-3.5 py-1.5 text-xs font-bold rounded-xl cursor-pointer transition-all flex items-center gap-1 ${
+                      isActive
+                        ? "bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-md ring-1 ring-amber-400"
+                        : "bg-white/10 hover:bg-white/15 text-amber-100/90 border border-white/10 backdrop-blur-md"
+                    }`}
+                  >
+                    {isActive && <span>✓</span>}
+                    <span>{tab.label}</span>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
@@ -474,70 +834,6 @@ export default function HomePage() {
       </main>
 
       <PwaInstallPrompt />
-
-      {/* फुटर साइटमैप */}
-      <footer className="border-t border-slate-200 bg-white pt-8 pb-6 mt-8">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6">
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-6 mb-8 text-left">
-            <div>
-              <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider mb-2.5">
-                📷 फोटो व हस्ताक्षर
-              </h4>
-              <ul className="space-y-1.5 text-[11px] text-slate-500">
-                <li><Link href="/tools/photo-name-date" className="hover:text-blue-600">पासपोर्ट फोटो (नाम/तारीख)</Link></li>
-                <li><Link href="/tools/photo-resize" className="hover:text-blue-600">एग्जाम स्पेशल फोटो रिसाइज़र</Link></li>
-                <li><Link href="/tools/signature-resize" className="hover:text-blue-600">सिग्नेचर रिसाइज़र व A4 स्कैनर</Link></li>
-                <li><Link href="/tools/passport-photo-4x6-maker" className="hover:text-blue-600">4×6 पासपोर्ट फोटो शीट</Link></li>
-                <li><Link href="/tools/photo-crop" className="hover:text-blue-600 font-bold text-slate-700">फोटो एंड डॉक क्रॉपर</Link></li>
-                <li><Link href="/tools/passport-grid-maker" className="hover:text-blue-600">पासपोर्ट फोटो ग्रिड (A4)</Link></li>
-                <li><Link href="/tools/live-photo-capture" className="hover:text-blue-600">लाइव वेबकैम फोटो कैप्चर</Link></li>
-                <li><Link href="/tools/exact-pixel-resize" className="hover:text-blue-600">सटीक पिक्सेल रिसाइज़र</Link></li>
-                <li><Link href="/tools/exact-kb-compressor" className="hover:text-blue-600">सटीक KB कंप्रेसर</Link></li>
-              </ul>
-            </div>
-
-            <div>
-              <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider mb-2.5">
-                🪪 डॉक्यूमेंट व कार्ड
-              </h4>
-              <ul className="space-y-1.5 text-[11px] text-slate-500">
-                <li><Link href="/tools/document-scanner" className="hover:text-blue-600">स्मार्ट डॉक्यूमेंट स्कैनर</Link></li>
-                <li><Link href="/tools/id-card-joiner" className="hover:text-blue-600">आईडी कार्ड जॉइनर (Front+Back)</Link></li>
-                <li><Link href="/tools/id-card-cropper" className="hover:text-blue-600">आईडी कार्ड सिंगल क्रॉपर</Link></li>
-                <li><Link href="/tools/certificate-fitter" className="hover:text-blue-600">सर्टिफिकेट A4 फिटर</Link></li>
-              </ul>
-            </div>
-
-            <div>
-              <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider mb-2.5">
-                📄 PDF टूल्स
-              </h4>
-              <ul className="space-y-1.5 text-[11px] text-slate-500">
-                <li><Link href="/tools/jpg-to-pdf" className="hover:text-blue-600">इमेज से A4 सरकारी PDF</Link></li>
-                <li><Link href="/tools/pdf-compressor" className="hover:text-blue-600">सरकारी फॉर्म PDF कंप्रेसर</Link></li>
-                <li><Link href="/tools/pdf-merge-split" className="hover:text-blue-600">PDF मर्ज व स्प्लिट</Link></li>
-                <li><Link href="/tools/pdf-to-jpg" className="hover:text-blue-600">PDF से JPG कनवर्टर</Link></li>
-                <li><Link href="/tools/pdf-password" className="hover:text-blue-600">PDF पासवर्ड प्रोटेक्ट/रिमूवर</Link></li>
-              </ul>
-            </div>
-
-            <div>
-              <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider mb-2.5">
-                ⚙️ एग्जाम यूटिलिटीज
-              </h4>
-              <ul className="space-y-1.5 text-[11px] text-slate-500">
-                <li><Link href="/tools/age-calculator" className="hover:text-blue-600">सरकारी परीक्षा आयु कैलकुलेटर</Link></li>
-                <li><Link href="/tools/exam-presets" className="hover:text-blue-600">ऑल इंडिया एग्जाम प्रीसेट्स</Link></li>
-                <li><Link href="/tools/csc-corner" className="hover:text-blue-600">सीएससी / जनसेवा केंद्र हब</Link></li>
-              </ul>
-            </div>
-          </div>
-
-          <div className="pt-4 border-t border-slate-100 text-center text-xs text-slate-400 font-medium">
-            © 2026 ExamSewa Tools Hub. छात्र, जनसेवा केंद्र व साइबर कैफ़े के लिए समर्पित।
-          </div>
-        </div>
-      </footer>
     </div>
   );
 }

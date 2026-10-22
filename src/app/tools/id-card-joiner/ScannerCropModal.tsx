@@ -25,6 +25,101 @@ export default function ScannerCropModal({
   const cornersRef = useRef<Point[]>([]);
   const activePointIdxRef = useRef<number | null>(null);
 
+  // ऑटो डॉक्यूमेंट/आईडी कार्ड एज डिटेक्शन इंजन (Edge Contrast & Brightness Gradient)
+  const detectDocumentCorners = (img: HTMLImageElement): Point[] => {
+    const nw = img.naturalWidth || img.width;
+    const nh = img.naturalHeight || img.height;
+    const sw = 320;
+    const sh = Math.max(10, Math.round((nh / nw) * sw));
+    const cvs = document.createElement("canvas");
+    cvs.width = sw;
+    cvs.height = sh;
+
+    const ctx = cvs.getContext("2d");
+    if (!ctx) {
+      const px = nw * 0.08, py = nh * 0.08;
+      return [
+        { x: px, y: py },
+        { x: nw - px, y: py },
+        { x: nw - px, y: nh - py },
+        { x: px, y: nh - py }
+      ];
+    }
+
+    ctx.drawImage(img, 0, 0, sw, sh);
+    const imgData = ctx.getImageData(0, 0, sw, sh);
+    const data = imgData.data;
+
+    const getLum = (x: number, y: number) => {
+      const idx = (y * sw + x) * 4;
+      return 0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2];
+    };
+
+    let topY = Math.round(sh * 0.08);
+    let bottomY = Math.round(sh * 0.92);
+    let leftX = Math.round(sw * 0.08);
+    let rightX = Math.round(sw * 0.92);
+
+    // ऊपर से स्कैन
+    for (let y = 10; y < sh * 0.4; y += 4) {
+      let diffSum = 0;
+      for (let x = sw * 0.2; x < sw * 0.8; x += 10) {
+        diffSum += Math.abs(getLum(Math.round(x), y + 4) - getLum(Math.round(x), y));
+      }
+      if (diffSum / ((sw * 0.6) / 10) > 22) {
+        topY = y;
+        break;
+      }
+    }
+
+    // नीचे से स्कैन
+    for (let y = sh - 10; y > sh * 0.6; y -= 4) {
+      let diffSum = 0;
+      for (let x = sw * 0.2; x < sw * 0.8; x += 10) {
+        diffSum += Math.abs(getLum(Math.round(x), y - 4) - getLum(Math.round(x), y));
+      }
+      if (diffSum / ((sw * 0.6) / 10) > 22) {
+        bottomY = y;
+        break;
+      }
+    }
+
+    // बाएँ से स्कैन
+    for (let x = 10; x < sw * 0.4; x += 4) {
+      let diffSum = 0;
+      for (let y = sh * 0.2; y < sh * 0.8; y += 10) {
+        diffSum += Math.abs(getLum(x + 4, Math.round(y)) - getLum(x, Math.round(y)));
+      }
+      if (diffSum / ((sh * 0.6) / 10) > 22) {
+        leftX = x;
+        break;
+      }
+    }
+
+    // दाएँ से स्कैन
+    for (let x = sw - 10; x > sw * 0.6; x -= 4) {
+      let diffSum = 0;
+      for (let y = sh * 0.2; y < sh * 0.8; y += 10) {
+        diffSum += Math.abs(getLum(x - 4, Math.round(y)) - getLum(x, Math.round(y)));
+      }
+      if (diffSum / ((sw * 0.6) / 10) > 22) {
+        rightX = x;
+        break;
+      }
+    }
+
+    const scaleX = nw / sw;
+    const scaleY = nh / sh;
+
+    return [
+      { x: Math.round(leftX * scaleX), y: Math.round(topY * scaleY) },
+      { x: Math.round(rightX * scaleX), y: Math.round(topY * scaleY) },
+      { x: Math.round(rightX * scaleX), y: Math.round(bottomY * scaleY) },
+      { x: Math.round(leftX * scaleX), y: Math.round(bottomY * scaleY) }
+    ];
+  };
+
+
   const drawCropCanvas = (activeIdx: number | null = activePointIdxRef.current) => {
     const cvs = canvasRef.current;
     const img = imgRef.current;
@@ -214,14 +309,16 @@ export default function ScannerCropModal({
       cvs.width = w;
       cvs.height = h;
 
-      const padX = w * 0.08;
-      const padY = h * 0.08;
-      cornersRef.current = [
-        { x: padX, y: padY },
-        { x: w - padX, y: padY },
-        { x: w - padX, y: h - padY },
-        { x: padX, y: h - padY },
-      ];
+      // ऑटो एज डिटेक्शन चलाकर कैनवास स्केल में मैप करना
+      const detected = detectDocumentCorners(img);
+      const nw = img.naturalWidth || img.width;
+      const nh = img.naturalHeight || img.height;
+      const toCvsX = w / nw;
+      const toCvsY = h / nh;
+      cornersRef.current = detected.map((p) => ({
+        x: Math.round(p.x * toCvsX),
+        y: Math.round(p.y * toCvsY),
+      }));
       drawCropCanvas(null);
     };
     img.src = imgSrc;

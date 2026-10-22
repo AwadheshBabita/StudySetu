@@ -319,6 +319,24 @@ export default function SignatureResizePage() {
     setDragMode('none');
   };
 
+  const rotateCropImage = () => {
+    if (!rawImageSrc) return;
+    const img = new Image();
+    img.src = rawImageSrc;
+    img.onload = () => {
+      const c = document.createElement("canvas");
+      c.width = img.height;
+      c.height = img.width;
+      const ctx = c.getContext("2d");
+      if (!ctx) return;
+      ctx.translate(c.width / 2, c.height / 2);
+      ctx.rotate((90 * Math.PI) / 180);
+      ctx.drawImage(img, -img.width / 2, -img.height / 2);
+      setCropBox(null);
+      setRawImageSrc(c.toDataURL("image/jpeg", 0.98));
+    };
+  };
+
   const confirmCrop = () => {
     if (!rawImageSrc || !cropBox || !cropCanvasRef.current) return;
     const canvas = cropCanvasRef.current;
@@ -380,6 +398,7 @@ export default function SignatureResizePage() {
 
   const handlePointerDown = (clientX: number, clientY: number) => {
     if (!imageSrc) return;
+    return; // DRAG_DISABLED
     setIsDragging(true);
     dragStartRef.current = {
       x: clientX - panOffset.x,
@@ -475,42 +494,27 @@ export default function SignatureResizePage() {
     const imgData = ctx.getImageData(0, 0, outW, outH);
     const data = imgData.data;
 
-    const whitePoint = 255 - Math.round((cleanBgStrength / 100) * 80);
-    const blackPoint = 60;
+        if (inkFilter !== "original") {
+      const bgOffset = (cleanBgStrength / 100) * 40;
+      for (let i = 0; i < data.length; i += 4) {
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+        const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+        
+        // बैकग्राउंड को बिना किनारे काटे साफ़ रखना
+        const adjustedGray = Math.min(255, gray + (gray > 160 ? bgOffset * ((gray - 160) / 95) : 0));
+        const inkDensity = (255 - adjustedGray) / 255;
 
-    for (let i = 0; i < data.length; i += 4) {
-      const r = data[i];
-      const g = data[i + 1];
-      const b = data[i + 2];
-      const gray = 0.299 * r + 0.587 * g + 0.114 * b;
-
-      if (gray >= whitePoint) {
-        data[i] = 255;
-        data[i + 1] = 255;
-        data[i + 2] = 255;
-      } else if (gray <= blackPoint) {
-        if (inkFilter === 'deep_black') {
-          data[i] = 10;
-          data[i + 1] = 10;
-          data[i + 2] = 10;
-        } else if (inkFilter === 'blue') {
-          data[i] = 10;
-          data[i + 1] = 40;
-          data[i + 2] = 160;
-        }
-      } else {
-        const t = (gray - blackPoint) / (whitePoint - blackPoint);
-        const smoothFactor = t * t * (3 - 2 * t);
-
-        if (inkFilter === 'deep_black') {
-          const val = Math.round(10 + (255 - 10) * smoothFactor);
+        if (inkFilter === "deep_black") {
+          const val = Math.round(255 - inkDensity * 245);
           data[i] = val;
           data[i + 1] = val;
           data[i + 2] = val;
-        } else if (inkFilter === 'blue') {
-          data[i] = Math.round(10 + (255 - 10) * smoothFactor);
-          data[i + 1] = Math.round(40 + (255 - 40) * smoothFactor);
-          data[i + 2] = Math.round(160 + (255 - 160) * smoothFactor);
+        } else if (inkFilter === "blue") {
+          data[i] = Math.round(255 - inkDensity * 245);
+          data[i + 1] = Math.round(255 - inkDensity * 200);
+          data[i + 2] = Math.round(255 - inkDensity * 80);
         }
       }
     }
@@ -531,8 +535,10 @@ export default function SignatureResizePage() {
     }
 
     try {
+      const { currentDpi } = getCalculatedDimensions();
       const res = await exportSmartJpg(canvas, {
         targetKb: targetKb,
+        dpi: currentDpi || 300,
         isDocument: true, // सिग्नेचर के लिए शार्पनेस लॉक
         minQuality: 0.15,
         maxQuality: 0.98,
@@ -552,7 +558,7 @@ export default function SignatureResizePage() {
       if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
       debounceTimerRef.current = setTimeout(() => {
         processSignature();
-      }, 50);
+      }, 150);
     }
   }, [imageSrc, sizeMode, customUnit, pxWidthStr, pxHeightStr, cmWidthStr, cmHeightStr, mmWidthStr, mmHeightStr, inchWidthStr, inchHeightStr, dpiStr, rotation, zoomLevel, panOffset, brightness, contrast, inkFilter, cleanBgStrength, targetKb, processSignature]);
 
@@ -588,25 +594,25 @@ export default function SignatureResizePage() {
   // 1. मुख्य कैनवास / लाइव प्रीव्यू ब्लॉक
   const CanvasSection = (
     <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200 shadow-xs text-center h-full flex flex-col justify-between">
-      <div className="flex items-center justify-between mb-1.5 px-1">
-        <div className="flex items-center gap-1.5">
-          <span className="text-xs font-black text-slate-700 uppercase">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 mb-2 px-1">
+        <div className="flex items-center justify-between sm:justify-start gap-2">
+          <span className="text-xs sm:text-sm font-black text-slate-800 uppercase tracking-wide whitespace-nowrap">
             मुख्य कैनवास प्रीव्यू
           </span>
           {imageSrc && (
-            <span className="text-[10px] text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full font-bold">
+            <span className="text-[10px] sm:text-xs text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-md font-semibold whitespace-nowrap">
               ✋ पकड़कर खिसकाएँ
             </span>
           )}
         </div>
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center justify-end gap-1.5">
           {isProcessing && (
-            <span className="text-[11px] text-amber-600 animate-pulse font-bold">
+            <span className="text-[11px] text-amber-600 animate-pulse font-bold whitespace-nowrap">
               ⚡ प्रोसेसिंग...
             </span>
           )}
           {outputKb > 0 && (
-            <span className="text-xs font-extrabold text-blue-700 bg-blue-100 px-2.5 py-0.5 rounded-full">
+            <span className="text-[11px] sm:text-xs font-bold text-blue-800 bg-blue-100 border border-blue-200 px-2.5 py-0.5 rounded-full whitespace-nowrap">
               {outputKb} KB | {currentDimensions.label}
             </span>
           )}
@@ -1232,10 +1238,12 @@ export default function SignatureResizePage() {
                 <div className="flex gap-2">
                   <button
                     type="button"
-                    onClick={() => setIsCropModalOpen(false)}
-                    className="px-4 py-2 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg cursor-pointer"
+                    onClick={rotateCropImage}
+                    className="px-3.5 py-2 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg cursor-pointer flex items-center gap-1.5 transition-colors"
+                    title="इमेज को 90 डिग्री घुमाएँ"
                   >
-                    रद्द करें
+                    <span>🔄</span>
+                    <span>90° घुमाएँ</span>
                   </button>
                   <button
                     type="button"

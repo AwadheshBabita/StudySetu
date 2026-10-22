@@ -9,7 +9,7 @@ export const metadata: Metadata = {
     "UP Police signature size 10kb to 20kb converter",
     "UPPRPB photo upload size and dimension online free",
     "UP Police exam photo with name and date generator",
-    "photo resizer for up police form 2026"
+    "photo resizer for up police form 2026",
   ],
   alternates: {
     canonical: "https://examsewa.online/tools/up-police-photo-resizer",

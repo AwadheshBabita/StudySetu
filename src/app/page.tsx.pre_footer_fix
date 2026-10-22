@@ -31,7 +31,7 @@ const ALL_21_TOOLS: ToolItem[] = [
   },
   {
     id: 'signature-resize',
-    name: 'सिग्नेचर रिसाइज़र (A4 स्कैनर)',
+    name: 'सिग्नेचर रिसाइज़र',
     desc: 'A4 पन्ने से दस्तखत काटें। डीप ब्लैक/ब्लू इंक व बैकग्राउंड क्लीनर।',
     category: 'photo',
     icon: '✍️',

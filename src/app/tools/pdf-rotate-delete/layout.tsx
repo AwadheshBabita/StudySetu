@@ -11,7 +11,7 @@ export const metadata: Metadata = {
     "pdf ke page kaise hataye",
     "rotate pdf clockwise counterclockwise",
     "delete unwanted pages from marksheet pdf",
-    "free pdf page organizer tool"
+    "free pdf page organizer tool",
   ],
   alternates: {
     canonical: "https://examsewa.online/tools/pdf-rotate-delete",

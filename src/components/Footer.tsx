@@ -50,11 +50,6 @@ export default function Footer() {
                 </Link>
               </li>
               <li>
-                <Link href="/tools/passport-grid-maker" className="text-emerald-100 hover:text-emerald-300 transition block">
-                  300 DPI पासपोर्ट ग्रिड (A4)
-                </Link>
-              </li>
-              <li>
                 <Link href="/tools/photo-name-date" className="text-emerald-100 hover:text-emerald-300 transition block">
                   पासपोर्ट फोटो (नाम व तारीख)
                 </Link>
@@ -70,8 +65,8 @@ export default function Footer() {
                 </Link>
               </li>
               <li>
-                <Link href="/tools/photo-crop" className="text-emerald-100 hover:text-emerald-300 transition block">
-                  फोटो एंड डॉक क्रॉपर
+                <Link href="/tools/document-crop" className="text-emerald-100 hover:text-emerald-300 transition block">
+                  डॉक्यूमेंट क्रॉपर
                 </Link>
               </li>
             </ul>

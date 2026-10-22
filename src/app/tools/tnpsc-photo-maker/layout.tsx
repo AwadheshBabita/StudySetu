@@ -11,7 +11,7 @@ export const metadata: Metadata = {
     "tnpsc otr photo with name and date",
     "tnpsc signature dimension converter",
     "tamil nadu psc online application photo crop",
-    "tnpsc photo compressor free"
+    "tnpsc photo compressor free",
   ],
   alternates: {
     canonical: "https://examsewa.online/tools/tnpsc-photo-maker",

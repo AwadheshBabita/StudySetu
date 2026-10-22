@@ -1,5 +1,5 @@
 "use client";
-
+import { optimizeSmartHd } from "./smartRiot";
 import React, { useState, useRef, useEffect } from "react";
 
 interface Point {
@@ -12,7 +12,7 @@ export default function IdCardJoinerClient() {
   const [frontImage, setFrontImage] = useState<string | null>(null);
   const [backImage, setBackImage] = useState<string | null>(null);
   const [targetSlot, setTargetSlot] = useState<"front" | "back">("front");
-  const [idLayoutMode, setIdLayoutMode] = useState<"horizontal" | "vertical">("horizontal");
+  const [idLayoutMode, setIdLayoutMode] = useState<"horizontal" | "vertical" | "passport_split">("horizontal");
 
   // 2. दिशा व घुमाव (Front/Back आधारित)
   const [activeSideTool, setActiveSideTool] = useState<"front" | "back">("front");
@@ -21,7 +21,7 @@ export default function IdCardJoinerClient() {
   const [flipV, setFlipV] = useState<{ front: boolean; back: boolean }>({ front: false, back: false });
 
   // 3. फिल्टर्स व एडजस्टमेंट स्लाइडर्स
-  const [filterMode, setFilterMode] = useState<"magic" | "bw" | "gray" | "original">("magic");
+  const [filterMode, setFilterMode] = useState<"magic" | "bw" | "gray" | "original">("original");
   const [brightness, setBrightness] = useState<number>(0);
   const [contrast, setContrast] = useState<number>(20);
   const [saturation, setSaturation] = useState<number>(0);
@@ -497,7 +497,6 @@ export default function IdCardJoinerClient() {
       const cctx = cardCanvas.getContext("2d");
       if (cctx) {
         cctx.drawImage(img, 0, 0, cardW, cardH);
-        applyPixelFilters(cardCanvas, filterMode);
       }
 
       ctx.save();
@@ -505,10 +504,22 @@ export default function IdCardJoinerClient() {
       ctx.rotate((rotationAngles[side] * Math.PI) / 180);
       ctx.scale(flipH[side] ? -1 : 1, flipV[side] ? -1 : 1);
 
-      let filterStr = `brightness(${100 + brightness}%) contrast(${100 + contrast}%) saturate(${100 + saturation}%)`;
-      ctx.filter = filterStr;
+            // प्रीव्यू के अनुसार मैजिक / ग्रे / ब्लैक एंड व्हाइट व ब्राइटनेस सिंक
+      let baseFilters = "";
+      if (filterMode === "magic") {
+        baseFilters = "contrast(115%) brightness(105%) saturate(110%)";
+      } else if (filterMode === "gray") {
+        baseFilters = "grayscale(100%)";
+      } else if (filterMode === "bw") {
+        baseFilters = "grayscale(100%) contrast(160%) brightness(105%)";
+      }
 
+      const userAdj = `brightness(${100 + brightness}%) contrast(${100 + contrast}%) saturate(${100 + saturation}%)`;
+      ctx.filter = (baseFilters + " " + userAdj).trim();
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
       ctx.drawImage(cardCanvas, -cardW / 2, -cardH / 2, cardW, cardH);
+      ctx.filter = "none";
       ctx.restore();
 
       ctx.strokeStyle = "#000000";
@@ -522,23 +533,89 @@ export default function IdCardJoinerClient() {
       const startX = (canvas.width - totalW) / 2;
       renderCard(frontImage, startX, startY, "front");
       renderCard(backImage, startX + cardW + gap, startY, "back");
-    } else {
+    } else if (idLayoutMode === "vertical") {
       const startX = (canvas.width - cardW) / 2;
       renderCard(frontImage, startX, startY, "front");
       renderCard(backImage, startX, startY + cardH + 70, "back");
+    } else if (idLayoutMode === "passport_split") {
+      // A4 Half-Split (Top 50% and Bottom 50% full area, No Border Box)
+      const halfH = canvas.height / 2;
+      const renderHalf = (imgSrc: string | null, slotOffsetY: number) => {
+        if (!imgSrc) return;
+        const img = new Image();
+        img.src = imgSrc;
+        const imgRatio = (img.width || 1) / (img.height || 1);
+        let drawW = canvas.width;
+        let drawH = drawW / imgRatio;
+        if (drawH > halfH) {
+          drawH = halfH;
+          drawW = drawH * imgRatio;
+        }
+        const drawX = (canvas.width - drawW) / 2;
+        const drawY = slotOffsetY + (halfH - drawH) / 2;
+        ctx.save();
+        ctx.drawImage(img, drawX, drawY, drawW, drawH);
+        ctx.restore();
+      };
+      renderHalf(frontImage, 0);
+      renderHalf(backImage, halfH);
     }
 
     return canvas;
   };
 
-  const handleDownloadJpg = () => {
+  const handleDownloadJpg = async () => {
     const cvs = generateA4Canvas();
-    const quality = isMaxHd ? 1.0 : Math.min(0.95, Math.max(0.4, targetKb / 400));
-    const url = cvs.toDataURL("image/jpeg", quality);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `ID_Card_A4_${targetKb}KB.jpg`;
-    a.click();
+
+    if (isMaxHd) {
+      const url = cvs.toDataURL("image/jpeg", 0.98);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "ID_Card_A4_MaxHD.jpg";
+      a.click();
+      return;
+    }
+
+    try {
+      // असली RIOT इंजन: A4 कार्ड्स के लिए document मोड व सटीक targetKb
+      const res = await optimizeSmartHd(cvs, {
+        targetKB: targetKb,
+        mode: "document"
+      });
+
+      const a = document.createElement("a");
+      a.href = res.dataUrl;
+      a.download = `ID_Card_A4_${res.sizeKB}KB.jpg`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(res.dataUrl), 5000);
+    } catch (err) {
+      console.error("RIOT Engine Error, fallback to standard canvas:", err);
+      const url = cvs.toDataURL("image/jpeg", 0.85);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `ID_Card_A4_${targetKb}KB.jpg`;
+      a.click();
+    }
+  };
+
+  const handleDownloadPdf = async () => {
+    try {
+      const cvs = generateA4Canvas();
+      const imgData = cvs.toDataURL("image/jpeg", 0.95);
+
+      const { default: jsPDF } = await import("jspdf");
+      const pdf = new jsPDF({
+        orientation: "portrait",
+        unit: "mm",
+        format: "a4"
+      });
+
+      pdf.addImage(imgData, "JPEG", 0, 0, 210, 297, undefined, "FAST");
+      pdf.save("ID_Card_A4_Print.pdf");
+    } catch (err) {
+      console.error("PDF Export Error:", err);
+      alert("PDF बनाने में त्रुटि हुई, कृपया पुनः प्रयास करें।");
+    }
   };
 
   const handleShare = async () => {
@@ -585,27 +662,27 @@ export default function IdCardJoinerClient() {
                   <span>📄</span> A4 शीट प्रीव्यू बॉक्स
                 </span>
                 <span className="text-[10px] bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full font-bold border border-blue-200">
-                  {idLayoutMode === "horizontal" ? "अगल-बगल" : "ऊपर-नीचे"} • ~{targetKb} KB
+                  {idLayoutMode === "horizontal" ? "अगल-बगल" : idLayoutMode === "vertical" ? "ऊपर-नीचे" : "पासपोर्ट हाफ़-हाफ़"} • ~{targetKb} KB
                 </span>
               </div>
 
               <div className="w-full flex items-center justify-center py-0.5">
                 <div className="w-full max-w-[215px] lg:max-w-none lg:w-auto lg:h-[calc(100vh-95px)] aspect-[210/297] lg:max-w-none shadow-2xl bg-white rounded-lg border-2 border-slate-800 shadow-lg p-1.5 lg:p-4 flex flex-col items-center justify-between mx-auto">
                   <div
-                    className={`w-full flex justify-center gap-1 transition-all ${
-                      idLayoutMode === "horizontal" ? "flex-row items-center pt-0.5" : "flex-col items-center pt-0.5 gap-1"
+                    className={`w-full transition-all ${
+                      idLayoutMode === "passport_split" ? "flex flex-col h-full w-full justify-between" : idLayoutMode === "horizontal" ? "flex flex-row items-center justify-center gap-1 pt-0.5" : "flex flex-col items-center justify-center pt-0.5 gap-1"
                     }`}
                   >
                     <div
-                      className={`aspect-[85.6/54] border border-slate-900 rounded overflow-hidden bg-slate-50 flex items-center justify-center transition-all ${
-                        idLayoutMode === "horizontal" ? "w-[48%]" : "w-[66%]"
+                      className={`transition-all flex items-center justify-center overflow-hidden ${
+                        idLayoutMode === "passport_split" ? "w-full h-1/2 p-0.5 bg-transparent" : "aspect-[85.6/54] border border-slate-900 rounded bg-slate-50 " + (idLayoutMode === "horizontal" ? "w-[48%]" : "w-[66%]")
                       }`}
                     >
                       {frontImage ? (
                         <img
                           src={frontImage}
                           alt="आगे का भाग"
-                          className="w-full h-full object-cover"
+                          className={`w-full h-full ${idLayoutMode === "passport_split" ? "object-contain" : "object-cover"}`}
                           style={{
                             transform: `rotate(${rotationAngles.front}deg) scale(${flipH.front ? -1 : 1}, ${flipV.front ? -1 : 1})`,
                             filter: `brightness(${100 + brightness}%) contrast(${100 + contrast}%) saturate(${100 + saturation}%) ${
@@ -619,15 +696,15 @@ export default function IdCardJoinerClient() {
                     </div>
 
                     <div
-                      className={`aspect-[85.6/54] border border-slate-900 rounded overflow-hidden bg-slate-50 flex items-center justify-center transition-all ${
-                        idLayoutMode === "horizontal" ? "w-[48%]" : "w-[66%]"
+                      className={`transition-all flex items-center justify-center overflow-hidden ${
+                        idLayoutMode === "passport_split" ? "w-full h-1/2 p-0.5 bg-transparent" : "aspect-[85.6/54] border border-slate-900 rounded bg-slate-50 " + (idLayoutMode === "horizontal" ? "w-[48%]" : "w-[66%]")
                       }`}
                     >
                       {backImage ? (
                         <img
                           src={backImage}
                           alt="पीछे का भाग"
-                          className="w-full h-full object-cover"
+                          className={`w-full h-full ${idLayoutMode === "passport_split" ? "object-contain" : "object-cover"}`}
                           style={{
                             transform: `rotate(${rotationAngles.back}deg) scale(${flipH.back ? -1 : 1}, ${flipV.back ? -1 : 1})`,
                             filter: `brightness(${100 + brightness}%) contrast(${100 + contrast}%) saturate(${100 + saturation}%) ${
@@ -641,7 +718,7 @@ export default function IdCardJoinerClient() {
                     </div>
                   </div>
 
-                  <div className="w-full pt-1 border-t border-dashed border-slate-300 text-center">
+                  <div className={`w-full pt-1 border-t border-dashed border-slate-300 text-center ${idLayoutMode === "passport_split" ? "hidden" : "block"}`}>
                     <span className="text-[7.5px] text-slate-400 font-medium">
                       ✂ शेष खाली A4 कागज़ (पुनः उपयोग योग्य)
                     </span>
@@ -722,6 +799,17 @@ export default function IdCardJoinerClient() {
                   }`}
                 >
                   ऊपर - नीचे
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIdLayoutMode("passport_split")}
+                  className={`col-span-2 py-2 px-3 text-xs font-bold rounded-xl transition border ${
+                    idLayoutMode === "passport_split"
+                      ? "bg-blue-600 text-white border-blue-600 shadow-xs"
+                      : "bg-amber-50/70 text-slate-800 border-2 border-amber-200/90 hover:bg-amber-100/60 font-bold shadow-xs"
+                  }`}
+                >
+                  📖 पासपोर्ट / पासबुक (ऊपर - नीचे)
                 </button>
               </div>
             </div>
@@ -950,15 +1038,16 @@ export default function IdCardJoinerClient() {
                 <span>मैक्स एचडी</span>
               </button>
 
-              <div className="pt-1">
+              <div className={`pt-1 transition-opacity ${isMaxHd ? "opacity-40 pointer-events-none" : "opacity-100"}`}>
                 <div className="flex justify-between text-xs font-bold text-slate-700 mb-1">
                   <span>कस्टम साइज़ चुनें:</span>
-                  <span className="text-blue-600 font-bold">{customKb} KB</span>
+                  <span className="text-blue-600 font-bold">{isMaxHd ? "Max HD (स्लाइडर बंद)" : `${customKb} KB`}</span>
                 </div>
                 <input
                   type="range"
                   min="10"
                   max="600"
+                  disabled={isMaxHd}
                   value={customKb}
                   onChange={(e) => {
                     const val = Number(e.target.value);
@@ -966,7 +1055,7 @@ export default function IdCardJoinerClient() {
                     setTargetKb(val);
                     setIsMaxHd(false);
                   }}
-                  className="w-full accent-blue-600 h-1.5 bg-slate-200 rounded-lg cursor-pointer"
+                  className="w-full accent-blue-600 h-1.5 bg-slate-200 rounded-lg cursor-pointer disabled:cursor-not-allowed"
                 />
                 <div className="flex justify-between text-[9px] text-slate-400 mt-1">
                   <span>10 KB</span>
@@ -994,15 +1083,14 @@ export default function IdCardJoinerClient() {
               <button
                 type="button"
                 onClick={handleDownloadJpg}
-                className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition active:scale-98 flex items-center justify-center gap-2"
-              >
+                className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition active:scale-98 flex items-center justify-center gap-2">
                 <span>🖼️</span>
-                <span>JPG डाउनलोड ({targetKb} KB)</span>
+                <span>JPG डाउनलोड {isMaxHd ? "(Max HD)" : `(${targetKb} KB)`}</span>
               </button>
 
               <button
                 type="button"
-                onClick={handleDownloadJpg}
+                onClick={handleDownloadPdf}
                 className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs transition active:scale-98 flex items-center justify-center gap-2"
               >
                 <span>📄</span>
@@ -1067,7 +1155,7 @@ export default function IdCardJoinerClient() {
           </div>
 
           <div className="relative w-full max-w-md aspect-[3/4] bg-neutral-900 rounded-2xl overflow-hidden border border-slate-800 flex items-center justify-center">
-            <video ref={videoRef} playsInline muted className="w-full h-full object-cover" />
+            <video ref={videoRef} playsInline muted className={`w-full h-full ${idLayoutMode === "passport_split" ? "object-contain" : "object-cover"}`} />
             <div className="absolute inset-8 border border-white/40 border-dashed rounded-xl pointer-events-none flex items-center justify-center">
               <span className="text-[11px] text-white/70 bg-black/50 px-2 py-0.5 rounded">कार्ड बीच में रखें</span>
             </div>

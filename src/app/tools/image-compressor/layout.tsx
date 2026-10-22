@@ -11,7 +11,7 @@ export const metadata: Metadata = {
     "photo kb reducer for govt exam",
     "online picture compressor without losing quality",
     "signature image compressor 10kb to 20kb",
-    "fast photo size reducer in kb"
+    "fast photo size reducer in kb",
   ],
   alternates: {
     canonical: "https://examsewa.online/tools/image-compressor",

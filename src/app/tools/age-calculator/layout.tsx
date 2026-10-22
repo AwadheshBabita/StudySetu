@@ -7,7 +7,7 @@ export const metadata: Metadata = {
     "age calculator for govt exams",
     "online age calculator",
     "dob to cutoff age calculate",
-    "sarkari exam age calculator"
+    "sarkari exam age calculator",
   ],
   alternates: {
     canonical: "https://examsewa.online/tools/age-calculator",

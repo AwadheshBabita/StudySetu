@@ -11,7 +11,13 @@ export const metadata: Metadata = {
     "ssc signature crop and resize",
     "online signature background cleaner",
     "upsc signature dimension converter",
-    "sarkari exam signature resizer free"
+    "sarkari exam signature resizer free",
+    "signature ka size kam kaise kare",
+    "signature 20 kb me kaise banaye",
+    "signature background white kaise kare",
+    "hastakshar resize online",
+    "mobile se signature crop kaise kare",
+    "signature upload error fix",
   ],
   alternates: {
     canonical: "https://examsewa.online/tools/signature-crop",

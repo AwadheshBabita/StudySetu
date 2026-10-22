@@ -9,7 +9,7 @@ export const metadata: Metadata = {
     "upsc ssc pdf size reducer 100kb 200kb",
     "reduce pdf file size below 100kb online",
     "multi page target pdf compressor govt exams",
-    "pdf compressor for online application free"
+    "pdf compressor for online application free",
   ],
   alternates: {
     canonical: "https://examsewa.online/tools/govt-exam-pdf-compressor",

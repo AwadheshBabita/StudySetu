@@ -8,7 +8,10 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  metadataBase: new URL("http://129.154.228.242:3000"),
+  metadataBase: new URL("https://examsewa.online"),
+  alternates: {
+    canonical: "/",
+  },
   title: "Exam Sewa — 100% Free Government Exam Tools, Photo/Sign Resizer & PDF Suite",
   description:
     "Free in-browser exam tools: SSC, UPSC photo & signature resizer (10-20KB, DOP stamp), exact KB compressor, A4 PVC ID card print sheet, live CamScanner deskew, and PDF suite.",

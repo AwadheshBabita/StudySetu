@@ -11,7 +11,7 @@ export const metadata: Metadata = {
     "sarkari exam live photo taker",
     "webcam photo resizer 20kb 50kb",
     "capture passport photo with laptop camera",
-    "live photo crop tool"
+    "live photo crop tool",
   ],
   alternates: {
     canonical: "https://examsewa.online/tools/live-photo-capture",

@@ -8,7 +8,7 @@ export const metadata: Metadata = {
     "camscanner alternative online without watermark",
     "auto edge detect photo scanner",
     "perspective crop document online a4",
-    "mobile photo scanner to clean pdf"
+    "mobile photo scanner to clean pdf",
   ],
   alternates: {
     canonical: "https://examsewa.online/tools/image-scanner",

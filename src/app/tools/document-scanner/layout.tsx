@@ -11,7 +11,10 @@ export const metadata: Metadata = {
     "remove shadow from paper photo",
     "marksheet clear scanner",
     "online document enhancer tool",
-    "clean yellow paper to white document"
+    "clean yellow paper to white document",
+    "mobile photo ko scan copy banaye",
+    "kagaz ki photo saaf kaise kare",
+    "shadow remove from document photo",
   ],
   alternates: {
     canonical: "https://examsewa.online/tools/document-scanner",

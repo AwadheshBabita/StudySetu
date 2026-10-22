@@ -11,7 +11,7 @@ export const metadata: Metadata = {
     "aadhar pan print helper",
     "certificate a4 print csc",
     "online form filling tools cyber cafe",
-    "quick photo resize csc center"
+    "quick photo resize csc center",
   ],
   alternates: {
     canonical: "https://examsewa.online/tools/csc-corner",

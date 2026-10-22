@@ -3,7 +3,17 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
   title: "JPG to PDF Converter - Convert Image to A4 PDF Online (Free)",
   description: "Convert JPG, JPEG, and images to standard A4 PDF online for free. Compress to 50KB, 100KB, 200KB for government job applications, marksheets, and documents.",
-  keywords: ["jpg to pdf", "jpg to pdf converter", "image to pdf", "a4 pdf converter", "convert photo to pdf", "sarkari pdf maker"],
+  keywords: [
+    "jpg to pdf",
+    "jpg to pdf converter",
+    "image to pdf",
+    "a4 pdf converter",
+    "convert photo to pdf",
+    "sarkari pdf maker",
+    "photo se pdf kaise banaye 200kb me",
+    "marksheet jpg to pdf a4",
+    "mobile photo ko pdf me convert kare",
+  ],
   alternates: {
     canonical: "https://examsewa.online/tools/jpg-to-pdf",
   },

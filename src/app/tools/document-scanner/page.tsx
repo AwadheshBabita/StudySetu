@@ -289,11 +289,19 @@ export default function DocumentScannerPage() {
       ctx.strokeStyle = "#ef4444";
       ctx.lineWidth = 2;
       ctx.beginPath();
+      // क्षैतिज रेखा (-)
       ctx.moveTo(lensX - 22, lensY);
       ctx.lineTo(lensX + 22, lensY);
+      // ऊर्ध्वाधर रेखा (|)
       ctx.moveTo(lensX, lensY - 22);
-      ctx.lineTo(lensX + 22, lensY);
+      ctx.lineTo(lensX, lensY + 22);
       ctx.stroke();
+
+      // केंद्र का सटीक बिंदु
+      ctx.beginPath();
+      ctx.arc(lensX, lensY, 2.5, 0, 2 * Math.PI);
+      ctx.fillStyle = "#ef4444";
+      ctx.fill();
 
       ctx.restore();
 
@@ -976,9 +984,9 @@ export default function DocumentScannerPage() {
         {imageSrc && step === "crop" && (
           <div className="space-y-2.5 max-w-4xl mx-auto select-none">
             
-            <div className="bg-blue-50 border border-blue-200 px-3 py-1.5 rounded-xl text-xs text-blue-900 flex items-center justify-between">
-              <span className="font-medium text-[11px] sm:text-xs">👉 चारों कोनों को अलग-अलग खींचकर काग़ज़ पर सेट करें</span>
-              <div className="flex items-center space-x-1.5">
+            <div className="bg-blue-50 border border-blue-200 px-2.5 py-1.5 rounded-xl text-xs text-blue-900 flex flex-wrap items-center justify-between gap-1.5">
+              <span className="font-medium text-[11px] sm:text-xs leading-tight">👉 चारों कोनों को खींचकर काग़ज़ पर सेट करें</span>
+              <div className="flex items-center space-x-1.5 shrink-0 ml-auto">
                 <button
                   type="button"
                   onClick={() => {

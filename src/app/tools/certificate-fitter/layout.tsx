@@ -8,7 +8,7 @@ export const metadata: Metadata = {
     "marksheet a4 paper fit",
     "document a4 print setter",
     "certificate printing tool",
-    "csc document print helper"
+    "csc document print helper",
   ],
   alternates: {
     canonical: "https://examsewa.online/tools/certificate-fitter",

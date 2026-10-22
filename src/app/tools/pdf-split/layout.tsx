@@ -11,7 +11,7 @@ export const metadata: Metadata = {
     "pdf se page alag kaise kare",
     "cut pdf pages online",
     "extract pages from pdf free",
-    "fast pdf cutter tool"
+    "fast pdf cutter tool",
   ],
   alternates: {
     canonical: "https://examsewa.online/tools/pdf-split",

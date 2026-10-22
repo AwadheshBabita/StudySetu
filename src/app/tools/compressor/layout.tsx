@@ -12,7 +12,7 @@ export const metadata: Metadata = {
     "sarkari form compressor tool",
     "reduce file size online free",
     "photo signature pdf compressor",
-    "online document compress tool"
+    "online document compress tool",
   ],
   alternates: {
     canonical: "https://examsewa.online/tools/compressor",

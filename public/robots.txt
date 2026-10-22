@@ -1,5 +1,8 @@
 User-agent: *
 Allow: /
-Allow: /tools/
+Disallow: /api/
+Disallow: /downloads/
+Disallow: /favicon.ico
+Disallow: /icon
 
 Sitemap: https://examsewa.online/sitemap.xml

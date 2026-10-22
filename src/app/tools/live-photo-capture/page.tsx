@@ -1,5 +1,5 @@
-'use client';
-
+"use client";
+import { exportSmartJpg } from "@/lib/image-engine";
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import FaqSection from '@/components/FaqSection';
 

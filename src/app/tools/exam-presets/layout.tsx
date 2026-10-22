@@ -11,7 +11,7 @@ export const metadata: Metadata = {
     "up police constable photo size preset",
     "all exam photo signature dimensions",
     "exam photo resize preset online",
-    "govt job document size chart"
+    "govt job document size chart",
   ],
   alternates: {
     canonical: "https://examsewa.online/tools/exam-presets",

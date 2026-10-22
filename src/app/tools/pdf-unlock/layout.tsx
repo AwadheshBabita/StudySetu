@@ -11,7 +11,7 @@ export const metadata: Metadata = {
     "pan card pdf unlock online",
     "remove encryption from pdf",
     "bank statement pdf password remover free",
-    "fast pdf unlocker online"
+    "fast pdf unlocker online",
   ],
   alternates: {
     canonical: "https://examsewa.online/tools/pdf-unlock",

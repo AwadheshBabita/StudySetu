@@ -11,7 +11,11 @@ export const metadata: Metadata = {
     "jpg to png converter",
     "change image format for govt form",
     "free online picture converter",
-    "photo extension changer online"
+    "photo extension changer online",
+    "photo ko jpg me kaise badle",
+    "png ko jpg kaise banaye",
+    "photo format change online",
+    "invalid file format error fix sarkari form",
   ],
   alternates: {
     canonical: "https://examsewa.online/tools/image-format-converter",

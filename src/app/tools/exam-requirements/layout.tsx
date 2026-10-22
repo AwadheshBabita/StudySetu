@@ -11,7 +11,7 @@ export const metadata: Metadata = {
     "ssc photo size requirements",
     "railway photo signature rules",
     "online form document specifications",
-    "passport photo background rules govt exams"
+    "passport photo background rules govt exams",
   ],
   alternates: {
     canonical: "https://examsewa.online/tools/exam-requirements",

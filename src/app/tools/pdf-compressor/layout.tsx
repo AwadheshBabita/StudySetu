@@ -11,7 +11,7 @@ export const metadata: Metadata = {
     "best pdf size reducer without losing quality",
     "online pdf file compressor in kb",
     "fast pdf optimizer for mobile",
-    "csc document pdf compressor"
+    "csc document pdf compressor",
   ],
   alternates: {
     canonical: "https://examsewa.online/tools/pdf-compressor",

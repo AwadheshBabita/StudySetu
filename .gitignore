@@ -47,3 +47,8 @@ src/data/*.backup-*
 studysetu.log
 src/app/study/page.tsx.backup2
 src/app/study/page.tsx.final-backup
+
+# Temporary backups & archives
+*.bak*
+*.tar.gz
+build_log.txt

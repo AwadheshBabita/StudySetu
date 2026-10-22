@@ -11,7 +11,10 @@ export const metadata: Metadata = {
     "straighten tilted id card photo",
     "smart id card crop tool",
     "voter id crop and straighten",
-    "driving license photo cropper"
+    "driving license photo cropper",
+    "tilted photo seedha kaise kare",
+    "mobile se khichi aadhar photo seedhi kare",
+    "id card corner crop tool",
   ],
   alternates: {
     canonical: "https://examsewa.online/tools/id-card-cropper",

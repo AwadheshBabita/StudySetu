@@ -18,211 +18,482 @@ interface ToolItem {
 }
 
 const ALL_21_TOOLS: ToolItem[] = [
-  // --- 1. प्राथमिक फोटो व हस्ताक्षर टूल्स ---
+  // ================= 12 ग्रीन मास्टर कार्ड्स (isTop10: true सुरक्षित) =================
   {
-    id: 'photo-name-date',
-    name: 'पासपोर्ट फोटो मेकर (नाम व तारीख)',
-    desc: 'सफेद पट्टी पर उम्मीदवार का नाम और DOP जोड़ें। 300 DPI सरकारी मानक।',
-    category: 'photo',
-    icon: '📛',
-    link: '/tools/photo-name-date',
-    badge: '300 DPI | DOP',
+    id: "photo-name-date",
+    name: "पासपोर्ट फोटो मेकर (नाम व तारीख)",
+    desc: "सफेद पट्टी पर उम्मीदवार का नाम और DOP जोड़ें। 300 DPI मानक।",
+    category: "photo",
+    icon: "📸",
+    link: "/tools/photo-name-date",
+    badge: "लोकप्रिय",
     isTop10: true
   },
   {
-    id: 'signature-resize',
-    name: 'सिग्नेचर रिसाइज़र (A4 स्कैनर)',
-    desc: 'A4 पन्ने से दस्तखत काटें। डीप ब्लैक/ब्लू इंक व बैकग्राउंड क्लीनर।',
-    category: 'photo',
-    icon: '✍️',
-    link: '/tools/signature-resize',
-    badge: 'A4 फ्री क्रॉप',
+    id: "passport-photo-maker",
+    name: "इंस्टेंट पासपोर्ट फोटो",
+    desc: "सरकारी फॉर्म एवं पासपोर्ट के लिए सटीक DPI व KB साइज फोटो बनाएं।",
+    category: "photo",
+    icon: "🖼️",
+    link: "/tools/passport-photo-maker",
+    badge: "नया",
     isTop10: true
   },
   {
-    id: 'image-to-pdf',
-    name: 'JPG से PDF कनवर्टर',
-    desc: 'कई तस्वीरों को एक साथ जोड़कर मानक A4 साइज़ PDF में बदलें (तय KB लिमिट के साथ)।',
-    category: 'pdf',
-    icon: '📄',
-    link: '/tools/jpg-to-pdf',
-    badge: 'मानक A4 PDF',
+    id: "signature-resize",
+    name: "सिग्नेचर रिसाइज़र",
+    desc: "सरकारी फॉर्म हेतु हस्ताक्षर क्रॉप, व्हाइटन और 10-20 KB में सेट करें।",
+    category: "photo",
+    icon: "✍️",
+    link: "/tools/signature-resize",
+    badge: "आवश्यक",
     isTop10: true
   },
   {
-    id: 'pdf-to-jpg',
-    name: 'PDF से JPG कनवर्टर',
-    desc: 'PDF फ़ाइल के हर पेज को अलग-अलग हाई क्वालिटी HD JPG इमेज में बदलें और डाउनलोड करें।',
-    category: 'pdf',
-    icon: '🖼️',
-    link: '/tools/pdf-to-jpg',
-    badge: 'HD 300 DPI',
+    id: "jpg-to-pdf",
+    name: "JPG से PDF कनवर्टर",
+    desc: "दस्तावेज की फोटो को सरकारी मानक A4 PDF में तुरंत बदलें।",
+    category: "pdf",
+    icon: "📄",
+    link: "/tools/jpg-to-pdf",
+    badge: "लोकप्रिय",
     isTop10: true
   },
   {
-    id: 'pdf-password',
-    name: 'PDF लॉक व अनलॉक मास्टर',
-    desc: 'PDF में सुरक्षित पासवर्ड लगाएँ (Lock) या पासवर्ड हटाकर अनलॉक (Unlock) करें।',
-    category: 'pdf',
-    icon: '🔐',
-    link: '/tools/pdf-password',
-    badge: 'पासवर्ड लॉक / अनलॉक',
-    isTop10: true
-  },
-
-  // --- 2. फोटो व प्रिंट टूल्स ---
-  {
-    id: 'passport-photo-4x6-maker',
-    name: '4×6 पासपोर्ट फोटो शीट मेकर',
-    desc: 'Mr. Photo इंजन से 4×6 व A4 पेपर पर सेल-बाय-सेल फोटो प्रिंट शीट तैयार करें।',
-    category: 'photo',
-    icon: '🖨️',
-    link: '/tools/passport-photo-4x6-maker',
-    badge: 'Ultra HD 600 DPI',
+    id: "pdf-to-jpg",
+    name: "PDF से JPG कनवर्टर",
+    desc: "PDF के सभी पेजों को हाई रेजोल्यूशन JPG फोटो में अलग करें।",
+    category: "pdf",
+    icon: "🖼️",
+    link: "/tools/pdf-to-jpg",
     isTop10: true
   },
   {
-    id: 'passport-grid-maker',
-    name: 'पासपोर्ट फोटो ग्रिड मेकर (A4)',
-    desc: 'A4 पेपर पर 6, 8, 12 या 24 फोटो का ग्रिड बनाकर प्रिंट करें।',
-    category: 'photo',
-    icon: '🔲',
-    link: '/tools/passport-grid-maker'
-  },
-  {
-    id: 'live-photo-capture',
-    name: 'लाइव वेबकैम फोटो कैप्चर',
-    desc: 'सीधे मोबाइल/वेबकैम से लाइव फोटो खींचें और भर्ती अनुपात में बदलें।',
-    category: 'photo',
-    icon: '📷',
-    link: '/tools/live-photo-capture'
-  },
-  {
-    id: 'exact-pixel-resize',
-    name: 'सटीक पिक्सेल रिसाइज़र',
-    desc: 'किसी भी फोटो को बिना रेश्यो बिगड़े कस्टम W×H पिक्सल में बदलें।',
-    category: 'photo',
-    icon: '📐',
-    link: '/tools/exact-pixel-resize'
-  },
-  {
-    id: 'exact-kb-compressor',
-    name: 'सटीक KB फोटो कंप्रेसर',
-    desc: 'क्वालिटी खोए बिना फोटो को 20 KB, 50 KB या 100 KB में लॉक करें।',
-    category: 'photo',
-    icon: '🗜️',
-    link: '/tools/exact-kb-compressor'
-  },
-
-  // --- 3. डॉक्यूमेंट, मार्कशीट व कार्ड टूल्स ---
-  {
-    id: 'document-scanner',
-    name: 'स्मार्ट डॉक्यूमेंट स्कैनर',
-    desc: 'मार्कशीट के पीलेपन व परछाई को साफ करके A4 में फिट करें।',
-    category: 'doc_card',
-    icon: '📑',
-    link: '/tools/document-scanner',
-    badge: 'A4 क्लीनर',
+    id: "passport-photo-4x6-maker",
+    name: "4×6 पासपोर्ट फोटो शीट मेकर",
+    desc: "4x6 फोटो पेपर पर 6 या 8 पासपोर्ट फोटो प्रिंट लेआउट बनाएं।",
+    category: "photo",
+    icon: "📇",
+    link: "/tools/passport-photo-4x6-maker",
     isTop10: true
   },
   {
-    id: 'id-card-joiner',
-    name: 'आईडी कार्ड जॉइनर (Front+Back)',
-    desc: 'पहचान पत्र के दोनों हिस्सों को एक ही A4 पेज पर जोड़ें।',
-    category: 'doc_card',
-    icon: '🪪',
-    link: '/tools/id-card-joiner',
-    badge: 'Front + Back',
+    id: "document-scanner",
+    name: "स्मार्ट डॉक्यूमेंट स्कैनर",
+    desc: "कैमरे या फोटो से मोबाइल दस्तावेज स्कैन करें, किनारा छांटें और साफ करें।",
+    category: "doc_card",
+    icon: "📠",
+    link: "/tools/document-scanner",
+    badge: "स्मार्ट",
     isTop10: true
   },
   {
-    id: 'id-card-cropper',
-    name: 'आईडी कार्ड सिंगल साइड क्रॉपर',
-    desc: 'कार्ड्स को सीधे मानक पॉकेट साइज़ में क्रॉप करें।',
-    category: 'doc_card',
-    icon: '💳',
-    link: '/tools/id-card-cropper'
-  },
-  {
-    id: 'certificate-fitter',
-    name: 'सर्टिफिकेट A4 फिटर',
-    desc: 'जाति, निवास, EWS प्रमाण पत्रों को सटीक A4 साइज में लॉक करें।',
-    category: 'doc_card',
-    icon: '📜',
-    link: '/tools/certificate-fitter'
-  },
-
-  // --- 4. पीडीएफ टूल्स ---
-  {
-    id: 'pdf-compressor',
-    name: 'PDF एवं Image कंप्रेसर',
-    desc: 'दस्तावेज़ (PDF) व फ़ोटो (JPG) को मनचाहे साइज़ (KB) में बिना क्वालिटी खोए कंप्रेस करें।',
-    category: 'pdf',
-    icon: '⚡',
-    link: '/tools/compressor',
-    secondaryName: 'Image कंप्रेसर',
-    badge: 'PDF + JPG',
+    id: "id-card-joiner",
+    name: "आईडी कार्ड जॉइनर (Front+Back)",
+    desc: "आधार, पैन या वोटर कार्ड के आगे और पीछे के भाग को एक पेज पर जोड़ें।",
+    category: "doc_card",
+    icon: "💳",
+    link: "/tools/id-card-joiner",
+    badge: "लोकप्रिय",
     isTop10: true
   },
   {
-    id: 'pdf-merge-split',
-    name: 'PDF मर्ज व स्प्लिट',
-    desc: 'पीडीएफ फाइलों को जोड़ें या जरूरी पन्ने अलग करें।',
-    category: 'pdf',
-    icon: '📑',
-    link: '/tools/pdf-merge-split',
+    id: "pdf-compressor",
+    name: "PDF एवं इमेज कंप्रेसर",
+    desc: "सरकारी फॉर्म व ऑनलाइन अपलोड हेतु PDF और फोटो का साइज तुरंत घटाएं।",
+    category: "pdf",
+    icon: "📉",
+    link: "/tools/compressor",
+    badge: "टॉप",
+    isTop10: true
+  },
+  {
+    id: "pdf-merge-split",
+    name: "PDF मर्ज व स्प्लिट",
+    desc: "PDF फाइलों को जोड़ने और पन्ने अलग करने का संपूर्ण मास्टर टूल।",
+    category: "pdf",
+    icon: "📂",
+    link: "/tools/pdf-merge-split",
+    badge: "मास्टर",
+    isTop10: true
+  },
+  {
+    id: "pdf-password",
+    name: "PDF लॉक व अनलॉक मास्टर",
+    desc: "PDF पर पासवर्ड लॉक लगाने और हटाने का ऑल-इन-वन टूल।",
+    category: "pdf",
+    icon: "🔑",
+    link: "/tools/pdf-password",
+    badge: "मास्टर",
+    isTop10: true
+  },
+  {
+    id: "age-calculator",
+    name: "सरकारी परीक्षा आयु कैलकुलेटर",
+    desc: "फॉर्म कट-ऑफ तिथि के अनुसार वर्ष, माह और दिन की सटीक गणना करें।",
+    category: "utility",
+    icon: "🎂",
+    link: "/tools/age-calculator",
+    badge: "सटीक",
+    isTop10: true
+  },
+  {
+    id: "document-crop",
+    name: "डॉक्यूमेंट क्रॉपर",
+    desc: "दस्तावेजों, मार्कशीट व प्रमाण-पत्रों के अनचाहे किनारे आसानी से काटें।",
+    category: "photo",
+    icon: "✂️",
+    link: "/tools/document-crop",
+    isTop10: true
+  },
+  {
+    id: "image-optimizer",
+    name: "इमेज ऑप्टिमाइज़र",
+    desc: "सरकारी फॉर्म के लिए फोटो व सिग्नेचर लाइव कंप्रेस करें। 2-चरण स्मार्ट स्केल और रियल-टाइम साइज प्रिव्यू।",
+    category: "photo",
+    icon: "⚡",
+    link: "/tools/image-optimizer",
+    badge: "स्मार्ट",
     isTop10: true
   },
 
-  // --- 5. यूटिलिटीज ---
+  // ================= 45 शुद्ध सिंगल नीले टूल्स (प्रत्येक टूल का डायरेक्ट पेज) =================
+  // 1. फोटो व हस्ताक्षर टूल्स (21 टूल्स)
   {
-    id: 'age-calculator',
-    name: 'सरकारी परीक्षा आयु कैलकुलेटर',
-    desc: 'कट-ऑफ तारीख के अनुसार अपनी सटीक उम्र (वर्ष, माह, दिन) निकालें।',
-    category: 'utility',
-    icon: '🎂',
-    link: '/tools/age-calculator',
-    badge: 'Age Counter',
-    isTop10: true
+    id: "blue-photo-name-date",
+    name: "पासपोर्ट फोटो मेकर (नाम व तारीख)",
+    desc: "सफेद पट्टी पर उम्मीदवार का नाम और DOP जोड़ें। 300 DPI मानक।",
+    category: "photo",
+    icon: "📸",
+    link: "/tools/photo-name-date",
+    badge: "लोकप्रिय"
   },
   {
-    id: 'image-compressor',
-    name: 'स्मार्ट Image कंप्रेसर',
-    desc: 'MozJPEG व Squoosh तकनीक: फोटो को 300 DPI व मनचाहे KB में कंप्रेस करें।',
-    category: 'photo',
-    icon: '⚡',
-    link: '/tools/image-compressor',
-    badge: 'Auto + KB Slider',
-    isTop10: false
+    id: "blue-signature-resize",
+    name: "सिग्नेचर रिसाइज़र",
+    desc: "सरकारी फॉर्म हेतु हस्ताक्षर क्रॉप, व्हाइटन और 10-20 KB में सेट करें।",
+    category: "photo",
+    icon: "✍️",
+    link: "/tools/signature-resize",
+    badge: "आवश्यक"
+  },
+  {
+    id: "blue-signature-crop",
+    name: "सिग्नेचर क्रॉपर",
+    desc: "दस्तावेज या फॉर्म से सिर्फ हस्ताक्षर का भाग सही अनुपात में क्रॉप करें।",
+    category: "photo",
+    icon: "✂️",
+    link: "/tools/signature-crop"
+  },
+  {
+    id: "blue-exact-pixel-resize",
+    name: "सटीक पिक्सेल रिसाइज़र",
+    desc: "मनचाही चौड़ाई और ऊँचाई (px/cm/mm) में बिना क्वालिटी खोए बदलें।",
+    category: "photo",
+    icon: "📐",
+    link: "/tools/exact-pixel-resize",
+    badge: "सटीक"
+  },
+  {
+    id: "blue-exact-kb-compressor",
+    name: "सटीक KB कंप्रेसर",
+    desc: "फोटो का साइज ठीक 20KB, 50KB या 100KB फिक्स करें।",
+    category: "photo",
+    icon: "🗜️",
+    link: "/tools/exact-kb-compressor",
+    badge: "फास्ट"
+  },
+  {
+    id: "blue-application-declaration-maker",
+    name: "आवेदन एवं घोषणा पत्र मेकर",
+    desc: "बैंक, पुलिस, स्कूल और तहसील हेतु प्रार्थना-पत्र व स्व-घोषणा A4 प्रिंट तैयार करें।",
+    category: "document",
+    icon: "📝",
+    link: "/tools/application-declaration-maker"
+  },
+  {
+    id: "blue-word-to-pdf-jpg",
+    name: "Word to PDF / JPG कनवर्टर",
+    desc: "Word (.docx/.doc) को सभी भारतीय भाषाओं व लेआउट सहित PDF या JPG में बदलें।",
+    category: "document",
+    icon: "📘",
+    link: "/tools/word-to-pdf-jpg"
   },
 
-  // --- 11वां मास्टर टूल ---
   {
-    id: 'photo-crop',
-    name: 'फोटो एंड डॉक क्रॉपर',
-    desc: 'A4 शीट से पासपोर्ट फोटो या कार्ड अलग काटें। सटीक KB कंप्रेसर व 300 DPI।',
-    category: 'photo',
-    icon: '✂️',
-    link: '/tools/photo-crop',
-    badge: '300 DPI | सटीक KB',
-    isTop10: true
+    id: "blue-image-compressor",
+    name: "स्मार्ट इमेज कंप्रेसर",
+    desc: "बड़ी फोटो को उच्च गुणवत्ता बनाए रखते हुए तुरंत छोटा करें।",
+    category: "photo",
+    icon: "⚡",
+    link: "/tools/image-compressor"
+  },
+  {
+    id: "blue-image-format-converter",
+    name: "इमेज फॉर्मेट कनवर्टर",
+    desc: "JPG, PNG, WEBP को एक-दूसरे में तुरंत बदलें।",
+    category: "photo",
+    icon: "🔄",
+    link: "/tools/image-format-converter"
+  },
+  {
+    id: "blue-passport-photo-4x6-maker",
+    name: "4×6 पासपोर्ट फोटो शीट मेकर",
+    desc: "4x6 फोटो पेपर पर 6 या 8 पासपोर्ट फोटो प्रिंट लेआउट बनाएं।",
+    category: "photo",
+    icon: "📇",
+    link: "/tools/passport-photo-4x6-maker"
+  },
+  {
+    id: "blue-live-photo-capture",
+    name: "लाइव वेबकैम फोटो कैप्चर",
+    desc: "वेबकैम से लाइव पासपोर्ट फोटो कैप्चर करें और बैकग्राउंड सेट करें।",
+    category: "photo",
+    icon: "📷",
+    link: "/tools/live-photo-capture"
+  },
+  {
+    id: "blue-ssc-photo-maker",
+    name: "SSC फोटो मेकर",
+    desc: "कर्मचारी चयन आयोग (SSC CGL/CHSL/GD) के सख्त नियमों अनुसार फोटो।",
+    category: "photo",
+    icon: "🏛️",
+    link: "/tools/ssc-photo-maker"
+  },
+  {
+    id: "blue-rrb-railway-photo-maker",
+    name: "RRB रेलवे फोटो मेकर",
+    desc: "रेलवे भर्ती बोर्ड (ALP, NTPC, Group D) हेतु फोटो व हस्ताक्षर गाइड।",
+    category: "photo",
+    icon: "🚆",
+    link: "/tools/rrb-railway-photo-maker"
+  },
+  {
+    id: "blue-up-police-photo-resizer",
+    name: "UP पुलिस फोटो रिसाइज़र",
+    desc: "उत्तर प्रदेश पुलिस भर्ती (कांस्टेबल/SI) विशेष फोटो व साइन रिसाइज़र।",
+    category: "photo",
+    icon: "👮",
+    link: "/tools/up-police-photo-resizer"
+  },
+  {
+    id: "blue-agniveer-live-photo",
+    name: "अग्निवीर लाइव फोटो टूल",
+    desc: "भारतीय सेना, नौसेना व वायुसेना अग्निवीर भर्ती मानक फोटो।",
+    category: "photo",
+    icon: "🎖️",
+    link: "/tools/agniveer-live-photo"
+  },
+  {
+    id: "blue-mpsc-photo-resizer",
+    name: "MPSC फोटो रिसाइज़र",
+    desc: "महाराष्ट्र लोक सेवा आयोग (MPSC) विशिष्ट डायमेंशन और साइज।",
+    category: "photo",
+    icon: "📜",
+    link: "/tools/mpsc-photo-resizer"
+  },
+  {
+    id: "blue-wbpsc-photo-resizer",
+    name: "WBPSC फोटो मेकर",
+    desc: "पश्चिम बंगाल पीएससी फॉर्म हेतु फोटो और सिग्नेचर रिसाइज़र।",
+    category: "photo",
+    icon: "🏢",
+    link: "/tools/wbpsc-photo-resizer"
+  },
+  {
+    id: "blue-tnpsc-photo-maker",
+    name: "TNPSC तमिलनाडु फोटो मेकर",
+    desc: "तमिलनाडु लोक सेवा आयोग भर्ती नियमों अनुसार फोटो मेकर।",
+    category: "photo",
+    icon: "🏛️",
+    link: "/tools/tnpsc-photo-maker"
   },
 
+  // 2. शुद्ध सिंगल PDF टूल्स (11 टूल्स)
   {
-    id: 'exam-presets',
-    name: 'ऑल इंडिया एग्जाम साइज प्रीसेट्स',
-    desc: 'SSC, UPSC, रेलवे, पुलिस व बैंकिंग साइज नियम।',
-    category: 'utility',
-    icon: '📋',
-    link: '/tools/exam-presets'
+    id: "blue-jpg-to-pdf",
+    name: "JPG से PDF कनवर्टर",
+    desc: "दस्तावेज की फोटो को सरकारी मानक A4 PDF में तुरंत बदलें।",
+    category: "pdf",
+    icon: "📄",
+    link: "/tools/jpg-to-pdf",
+    badge: "लोकप्रिय"
   },
   {
-    id: 'csc-corner',
-    name: 'सीएससी / जनसेवा केंद्र हब',
-    desc: 'कैफे व जनसेवा केंद्र संचालकों के लिए जरूरी फॉर्म्स व लिंक्स।',
-    category: 'utility',
-    icon: '🏪',
-    link: '/tools/csc-corner'
+    id: "blue-pdf-to-jpg",
+    name: "PDF से JPG कनवर्टर",
+    desc: "PDF के सभी पेजों को हाई रेजोल्यूशन JPG फोटो में अलग करें।",
+    category: "pdf",
+    icon: "🖼️",
+    link: "/tools/pdf-to-jpg"
+  },
+  {
+    id: "blue-pdf-merge",
+    name: "PDF मर्ज",
+    desc: "कई अलग-अलग PDF फाइलों को सीधे एक ही PDF फाइल में जोड़ें।",
+    category: "pdf",
+    icon: "📑",
+    link: "/tools/pdf-merge"
+  },
+  {
+    id: "blue-pdf-split",
+    name: "PDF स्प्लिट",
+    desc: "बड़ी PDF फाइल में से अपनी पसंद के पेज काटकर अलग PDF बनाएं।",
+    category: "pdf",
+    icon: "✂️",
+    link: "/tools/pdf-split"
+  },
+  {
+    id: "blue-pdf-protect",
+    name: "PDF पासवर्ड लॉक",
+    desc: "अपनी गोपनीय PDF फाइल पर सुरक्षित पासवर्ड लॉक लगाएं।",
+    category: "pdf",
+    icon: "🔒",
+    link: "/tools/pdf-protect"
+  },
+  {
+    id: "blue-pdf-unlock",
+    name: "PDF पासवर्ड अनलॉक",
+    desc: "पासवर्ड सुरक्षित PDF से लॉक हटाकर सामान्य PDF बनाएं।",
+    category: "pdf",
+    icon: "🔓",
+    link: "/tools/pdf-unlock"
+  },
+  {
+    id: "blue-pdf-compressor",
+    name: "PDF कंप्रेसर (टारगेट KB व फॉर्म्स)",
+    desc: "UPSC, SSC व सरकारी फॉर्म हेतु PDF फाइल का साइज 100KB-500KB में तुरंत घटाएं।",
+    category: "pdf",
+    icon: "📉",
+    link: "/tools/pdf-compressor",
+    badge: "फास्ट"
+  },
+  {
+    id: "blue-pdf-rotate-delete",
+    name: "PDF रोटेट व डिलीट",
+    desc: "उल्टे पन्नों को सीधा घुमाएं और गैर-जरूरी पन्ने PDF से हटाएं।",
+    category: "pdf",
+    icon: "🔄",
+    link: "/tools/pdf-rotate-delete"
+  },
+  {
+    id: "blue-pdf-watermark",
+    name: "PDF वॉटरमार्क एडर",
+    desc: "अपने दस्तावेजों पर सुरक्षा वॉटरमार्क या मुहर टेक्स्ट लगाएं।",
+    category: "pdf",
+    icon: "🏷️",
+    link: "/tools/pdf-watermark"
+  },
+
+  // 3. डॉक्यूमेंट व कार्ड टूल्स (6 टूल्स)
+  {
+    id: "blue-document-scanner",
+    name: "स्मार्ट डॉक्यूमेंट स्कैनर",
+    desc: "कैमरे या फोटो से मोबाइल दस्तावेज स्कैन करें, किनारा छांटें और साफ करें।",
+    category: "doc_card",
+    icon: "📠",
+    link: "/tools/document-scanner",
+    badge: "स्मार्ट"
+  },
+  {
+    id: "blue-image-scanner",
+    name: "इमेज स्कैनर टूल",
+    desc: "दस्तावेज की फोटो से शैडो व पीलापन हटाकर A4 डॉक बनाएं।",
+    category: "doc_card",
+    icon: "🖨️",
+    link: "/tools/image-scanner"
+  },
+  {
+    id: "blue-id-card-joiner",
+    name: "आईडी कार्ड जॉइनर (Front+Back)",
+    desc: "आधार, पैन या वोटर कार्ड के आगे और पीछे के भाग को एक पेज पर जोड़ें।",
+    category: "doc_card",
+    icon: "💳",
+    link: "/tools/id-card-joiner",
+    badge: "लोकप्रिय"
+  },
+  {
+    id: "blue-id-card-cropper",
+    name: "आईडी कार्ड क्रॉपर",
+    desc: "दस्तावेज से सही अनुपात में आईडी कार्ड का हिस्सा ऑटो-क्रॉप करें।",
+    category: "doc_card",
+    icon: "✂️",
+    link: "/tools/id-card-cropper"
+  },
+  {
+    id: "blue-certificate-fitter",
+    name: "सर्टिफिकेट फिटर",
+    desc: "मार्कशीट व सर्टिफिकेट को सरकारी पोर्टल के 100-300 KB में सेट करें।",
+    category: "doc_card",
+    icon: "📜",
+    link: "/tools/certificate-fitter"
+  },
+  {
+    id: "blue-bihar-rtps-document-compressor",
+    name: "बिहार RTPS कंप्रेसर",
+    desc: "बिहार जाति, आय, निवास व सर्विस प्लस पोर्टल हेतु डॉक्यूमेंट रिसाइज़र।",
+    category: "doc_card",
+    icon: "🏛️",
+    link: "/tools/bihar-rtps-document-compressor"
+  },
+
+  // 4. यूटिलिटीज व सहायक टूल्स (7 टूल्स)
+  {
+    id: "blue-age-calculator",
+    name: "सरकारी परीक्षा आयु कैलकुलेटर",
+    desc: "फॉर्म कट-ऑफ तिथि के अनुसार वर्ष, माह और दिन की सटीक गणना करें।",
+    category: "utility",
+    icon: "🎂",
+    link: "/tools/age-calculator",
+    badge: "सटीक"
+  },
+  {
+    id: "blue-ocr-scanner",
+    name: "ओसीआर टेक्स्ट स्कैनर",
+    desc: "फोटो व मार्कशीट से हिंदी और अंग्रेजी टेक्स्ट सीधे कॉपी करें।",
+    category: "utility",
+    icon: "🔍",
+    link: "/tools/ocr-scanner"
+  },
+  {
+    id: "blue-compressor",
+    name: "ऑल-इन-वन कंप्रेसर",
+    desc: "इमेज और फाइल्स को बिना तकनीकी परेशानी के तुरंत कंप्रेस करें।",
+    category: "utility",
+    icon: "⚙️",
+    link: "/tools/compressor"
+  },
+  {
+    id: "blue-csc-corner",
+    name: "सीएससी / जनसेवा केंद्र हब",
+    desc: "कैफे व जनसेवा केंद्र संचालकों हेतु उपयोगी फॉर्म टूल्स का संग्रह।",
+    category: "utility",
+    icon: "🏪",
+    link: "/tools/csc-corner"
+  },
+  {
+    id: "blue-exam-presets",
+    name: "एग्जाम साइज प्रीसेट्स",
+    desc: "विभिन्न सरकारी भर्तियों के पहले से बने फोटो व साइन साइज प्रीसेट्स।",
+    category: "utility",
+    icon: "📋",
+    link: "/tools/exam-presets"
+  },
+  {
+    id: "blue-exam-requirements",
+    name: "एग्जाम रिक्वायरमेंट्स चेकर",
+    desc: "नवीनतम सरकारी फॉर्म के लिए जरूरी फोटो व डॉक्यूमेंट नियम जांचें।",
+    category: "utility",
+    icon: "✅",
+    link: "/tools/exam-requirements"
+  },
+  {
+    id: "blue-exam-guide",
+    name: "एग्जाम गाइड",
+    desc: "सरकारी फॉर्म ऑनलाइन भरते समय होने वाली गलतियों से बचने की गाइड।",
+    category: "utility",
+    icon: "📖",
+    link: "/tools/exam-guide"
   }
 ];
 
@@ -266,6 +537,7 @@ export default function HomePage() {
 
   const filteredTools = useMemo(() => {
     return ALL_21_TOOLS.filter((tool) => {
+      if (tool.isTop10) return false;
       const q = searchQuery.toLowerCase().trim();
       const matchesSearch =
         q === '' ||

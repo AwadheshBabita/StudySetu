@@ -11,7 +11,7 @@ export const metadata: Metadata = {
     "mpsc signature resize 10kb to 50kb",
     "mpsc photo background rules",
     "online mpsc form photo tool",
-    "mpsc exam document resizer"
+    "mpsc exam document resizer",
   ],
   alternates: {
     canonical: "https://examsewa.online/tools/mpsc-photo-resizer",

@@ -9,7 +9,7 @@ export const metadata: Metadata = {
     "Army GD live photo size 20kb to 50kb",
     "join indian army photo upload size compressor",
     "Agniveer Navy live photo capture without app",
-    "webcam live photo for army rally form online"
+    "webcam live photo for army rally form online",
   ],
   alternates: {
     canonical: "https://examsewa.online/tools/agniveer-live-photo",

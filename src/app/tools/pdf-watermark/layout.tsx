@@ -11,7 +11,7 @@ export const metadata: Metadata = {
     "protect study notes with watermark",
     "custom text watermark on pdf",
     "coaching notes watermark generator",
-    "free pdf watermarking tool"
+    "free pdf watermarking tool",
   ],
   alternates: {
     canonical: "https://examsewa.online/tools/pdf-watermark",

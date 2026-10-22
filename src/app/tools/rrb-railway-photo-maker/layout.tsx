@@ -11,7 +11,7 @@ export const metadata: Metadata = {
     "railway group d photo specifications",
     "rrb technician signature resize online",
     "rpf constable photo resizer free",
-    "online railway exam photo editor"
+    "online railway exam photo editor",
   ],
   alternates: {
     canonical: "https://examsewa.online/tools/rrb-railway-photo-maker",

@@ -11,7 +11,11 @@ export const metadata: Metadata = {
     "ssc photo name and date generator",
     "passport photo date of photo maker",
     "online name date photo maker for govt exam",
-    "dop photo online generator free"
+    "dop photo online generator free",
+    "photo par naam aur date kaise dale",
+    "dop photo editor for ssc",
+    "ssc photo par date stamp kaise lagaye",
+    "passport photo name date maker free",
   ],
   alternates: {
     canonical: "https://examsewa.online/tools/photo-name-date",

@@ -15,6 +15,61 @@ interface PdfPageItem {
   rotation: number;
 }
 
+// JPEG बाइनरी में सही 300 DPI या 150 DPI JFIF हेडर इंजेक्ट करना
+function injectDpiToDataUrl(dataUrl: string, dpi: number): string {
+  try {
+    const parts = dataUrl.split(",");
+    const raw = atob(parts[1]);
+    const u8 = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) {
+      u8[i] = raw.charCodeAt(i);
+    }
+
+    if (u8[0] !== 0xff || u8[1] !== 0xd8) return dataUrl;
+
+    const jfifHeader = new Uint8Array([
+      0xff, 0xe0, 0x00, 0x10,
+      0x4a, 0x46, 0x49, 0x46, 0x00,
+      0x01, 0x01, 0x01,
+      (dpi >> 8) & 0xff, dpi & 0xff,
+      (dpi >> 8) & 0xff, dpi & 0xff,
+      0x00, 0x00
+    ]);
+
+    let offset = 2;
+    while (offset < u8.length - 1) {
+      if (u8[offset] === 0xff && u8[offset + 1] === 0xe0) {
+        const len = (u8[offset + 2] << 8) | u8[offset + 3];
+        offset += 2 + len;
+        break;
+      } else if (u8[offset] === 0xff && (u8[offset + 1] >= 0xe1 && u8[offset + 1] <= 0xef)) {
+        const len = (u8[offset + 2] << 8) | u8[offset + 3];
+        offset += 2 + len;
+      } else {
+        break;
+      }
+    }
+
+    const restBytes = u8.slice(offset);
+    const finalBytes = new Uint8Array(2 + jfifHeader.length + restBytes.length);
+    finalBytes[0] = 0xff;
+    finalBytes[1] = 0xd8;
+    finalBytes.set(jfifHeader, 2);
+    finalBytes.set(restBytes, 2 + jfifHeader.length);
+
+    let binary = "";
+    const len = finalBytes.byteLength;
+    const chunk = 8192;
+    for (let i = 0; i < len; i += chunk) {
+      const sub = finalBytes.subarray(i, Math.min(i + chunk, len));
+      binary += String.fromCharCode.apply(null, sub as unknown as number[]);
+    }
+    return "data:image/jpeg;base64," + btoa(binary);
+  } catch (e) {
+    return dataUrl;
+  }
+}
+
 export default function PdfToJpgPage() {
   const [pages, setPages] = useState<PdfPageItem[]>([]);
   const [scaleDpi, setScaleDpi] = useState<number>(4.167); // 4.167 = True 300 DPI Ultra HD, 2.083 = 150 DPI Normal
@@ -99,7 +154,9 @@ export default function PdfToJpgPage() {
           }).promise;
 
           const quality = scale > 3.0 ? 0.98 : 0.92;
-          const dataUrl = canvas.toDataURL("image/jpeg", quality);
+          const rawUrl = canvas.toDataURL("image/jpeg", quality);
+          const currentDpiValue = scale > 3.0 ? 300 : 150;
+          const dataUrl = injectDpiToDataUrl(rawUrl, currentDpiValue);
 
           newPages.push({
             id: `${f.name}_page_${pNum}_${Date.now()}_${Math.random()}`,
@@ -317,7 +374,8 @@ export default function PdfToJpgPage() {
           ctx.rotate((90 * Math.PI) / 180);
           ctx.drawImage(img, -img.width / 2, -img.height / 2);
 
-          const newUrl = c.toDataURL("image/jpeg", scaleDpi > 3.0 ? 0.98 : 0.92);
+          const currentDpiValue = scaleDpi > 3.0 ? 300 : 150;
+          const newUrl = injectDpiToDataUrl(c.toDataURL("image/jpeg", scaleDpi > 3.0 ? 0.98 : 0.92), currentDpiValue);
           setPages((latest) =>
             latest.map((p) => (p.id === id ? { ...p, dataUrl: newUrl, rotation: newRot } : p))
           );
@@ -341,22 +399,23 @@ export default function PdfToJpgPage() {
     <main className="min-h-screen bg-slate-50 py-3 sm:py-6 px-2 sm:px-4 text-slate-800 select-none">
       <div className="max-w-7xl mx-auto space-y-4 sm:space-y-6">
         {/* हेडर बार */}
-        <header className="bg-white rounded-2xl border-2 border-slate-900 p-3 sm:p-4 shadow-md flex items-center justify-between">
-          <div className="flex items-center gap-3">
+        <header className="bg-white rounded-2xl border-2 border-slate-900 p-2.5 sm:p-4 shadow-sm flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             <Link
               href="/"
-              className="text-xs font-bold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-lg border border-slate-300 transition-all"
+              className="shrink-0 text-xs font-bold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-2.5 py-1.5 rounded-lg border border-slate-300 transition-all"
+              title="होमपेज पर जाएँ"
             >
               ← होम
             </Link>
-            <div className="flex flex-col">
-              <h1 className="text-base sm:text-lg font-black text-slate-900 tracking-tight flex items-center gap-1.5">
+            <div className="flex items-center flex-wrap gap-x-2 gap-y-0.5 min-w-0">
+              <h1 className="text-sm sm:text-lg font-black text-slate-900 tracking-tight flex items-center gap-1.5 whitespace-nowrap">
                 <span>ExamSewa</span>
                 <span className="text-blue-600 font-bold">PDF to JPG</span>
-                <span className="text-[10px] bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full border border-blue-200 font-bold">
-                  अल्ट्रा HD
-                </span>
               </h1>
+              <span className="text-[10px] sm:text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-md border border-blue-200 font-bold whitespace-nowrap">
+                अल्ट्रा HD
+              </span>
             </div>
           </div>
 
@@ -367,7 +426,7 @@ export default function PdfToJpgPage() {
                 uploadedFilesRef.current = [];
                 if (fileInputRef.current) fileInputRef.current.value = "";
               }}
-              className="text-xs font-bold text-red-600 hover:bg-red-50 px-3 py-1.5 rounded-lg border border-red-200 transition-all cursor-pointer"
+              className="shrink-0 text-xs font-bold text-red-600 hover:bg-red-50 px-2.5 py-1.5 rounded-lg border border-red-200 transition-all cursor-pointer whitespace-nowrap"
             >
               ✕ रीसेट
             </button>

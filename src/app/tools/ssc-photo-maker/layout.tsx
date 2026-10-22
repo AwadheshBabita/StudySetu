@@ -11,7 +11,7 @@ export const metadata: Metadata = {
     "ssc chsl signature crop tool",
     "ssc gd photo size converter",
     "ssc mts photo requirements online maker",
-    "sarkari ssc photo maker free"
+    "sarkari ssc photo maker free",
   ],
   alternates: {
     canonical: "https://examsewa.online/tools/ssc-photo-maker",

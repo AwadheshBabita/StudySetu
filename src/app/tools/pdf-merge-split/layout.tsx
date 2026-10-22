@@ -11,7 +11,10 @@ export const metadata: Metadata = {
     "extract pages from pdf",
     "pdf jodne aur alag karne ka tool",
     "free pdf combiner and cutter",
-    "sarkari form pdf tools online"
+    "sarkari form pdf tools online",
+    "do pdf ko ek sath kaise jode",
+    "marksheet aur certificate pdf merge",
+    "pdf jodne wala online tool",
   ],
   alternates: {
     canonical: "https://examsewa.online/tools/pdf-merge-split",

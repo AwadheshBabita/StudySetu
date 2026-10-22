@@ -1,759 +1,1620 @@
 'use client';
 
-import React, { useState, useRef } from 'react';
-import Link from 'next/link';
+import React, { useState, useEffect, useRef } from 'react';
 
-type PaperType = '4x6' | 'a4';
-type LayoutCount4x6 = 1 | 8 | 9 | 12;
-type LayoutCountA4 = 1 | 10 | 24 | 30 | 36;
-type Orientation = 'portrait' | 'landscape';
+type Step = 'upload' | 'options' | 'print-sheet';
+type ColorEffect = 'original' | 'bw' | 'bright' | 'studio';
+type FitMode = 'trim' | 'no-trim' | 'adjust';
+type PaperCategory = '4x6' | '5x7' | 'a4';
+type MeasurementUnit = 'mm' | 'cm';
 
-// 300 DPI: 1 inch = 25.4mm = 300px => 1mm = 11.8110236 px
-const MM_TO_PX = 300 / 25.4;
+interface GridVariant {
+  id: string;
+  name: string;
+  subText: string;
+  rows: number;
+  cols: number;
+  gapMm: number;
+  rowGapMm?: number;
+  colGapMm?: number;
+  topMarginMm: number;
+  sideMarginMm: number;
+  cellWidthMm: number;
+  cellHeightMm: number;
+  isSingle?: boolean;
+  isCustom?: boolean;
+}
 
-export default function PassportPhotoSheetMaker() {
-  const [imageSrc, setImageSrc] = useState<string | null>(null);
-  const [paperType, setPaperType] = useState<PaperType>('4x6');
-  
-  const [count4x6, setCount4x6] = useState<LayoutCount4x6>(8);
-  const [countA4, setCountA4] = useState<LayoutCountA4>(30);
-  
-  const [orientation, setOrientation] = useState<Orientation>('landscape');
-  const [photoRotation, setPhotoRotation] = useState<number>(0);
-  
-  const [fitTheCell, setFitTheCell] = useState<boolean>(false);
-  const [disabledCells, setDisabledCells] = useState<number[]>([]);
+interface PaperGroup {
+  id: PaperCategory;
+  title: string;
+  aspect: string;
+  pixelW: number;
+  pixelH: number;
+  paperWidthMm: number;
+  paperHeightMm: number;
+  variants: GridVariant[];
+}
 
-  const [brightness, setBrightness] = useState<number>(100);
-  const [contrast, setContrast] = useState<number>(100);
-  const [showBorder, setShowBorder] = useState<boolean>(true);
-  const [isProcessing, setIsProcessing] = useState<boolean>(false);
-
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const handleFileUpload = (file?: File) => {
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      setImageSrc(e.target?.result as string);
-      setDisabledCells([]);
-      setPhotoRotation(0);
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const toggleCell = (index: number) => {
-    if (disabledCells.includes(index)) {
-      setDisabledCells(disabledCells.filter((i) => i !== index));
-    } else {
-      setDisabledCells([...disabledCells, index]);
-    }
-  };
-
-  const handle4x6CountChange = (cnt: LayoutCount4x6) => {
-    setCount4x6(cnt);
-    if (cnt === 8) {
-      setOrientation('landscape');
-    } else {
-      setOrientation('portrait');
-    }
-  };
-
-  const handleA4CountChange = (cnt: LayoutCountA4) => {
-    setCountA4(cnt);
-    setOrientation('portrait');
-  };
-
-  const rotateLeft = () => {
-    setPhotoRotation((prev) => (prev - 90 + 360) % 360);
-  };
-
-  const rotateRight = () => {
-    setPhotoRotation((prev) => (prev + 90) % 360);
-  };
-
-  // सटीक मिलीमीटर लेआउट कॉन्फ़िगरेशन
-  const getLayoutSpec = () => {
-    // पेपर की कुल चौड़ाई व ऊँचाई मिमी (mm) में
-    let sheetW_mm = paperType === '4x6' ? 101.6 : 210.0;
-    let sheetH_mm = paperType === '4x6' ? 152.4 : 297.0;
-
-    if (orientation === 'landscape') {
-      const temp = sheetW_mm;
-      sheetW_mm = sheetH_mm;
-      sheetH_mm = temp;
-    }
-
-    let cols = 1;
-    let rows = 1;
-    let photoW_mm = sheetW_mm - 10;
-    let photoH_mm = sheetH_mm - 10;
-    let gapX_mm = 0;
-    let gapY_mm = 0;
-
-    if (paperType === '4x6') {
-      if (count4x6 === 1) {
-        cols = 1; rows = 1;
-        photoW_mm = sheetW_mm - 8;
-        photoH_mm = sheetH_mm - 8;
-      } else if (count4x6 === 8) {
-        // 8 फोटो: 3.5 x 4.5 cm (35 x 45 mm)
-        if (orientation === 'landscape') {
-          cols = 4; rows = 2;
-          photoW_mm = 35; photoH_mm = 45;
-          gapX_mm = 2.0; gapY_mm = 2.0;
-        } else {
-          cols = 2; rows = 4;
-          photoW_mm = 35; photoH_mm = 45;
-          gapX_mm = 2.0; gapY_mm = 2.0;
-        }
-      } else if (count4x6 === 9) {
-        cols = 3; rows = 3;
-        photoW_mm = 30; photoH_mm = 40;
-        gapX_mm = 2.0; gapY_mm = 2.0;
-      } else if (count4x6 === 12) {
-        cols = 3; rows = 4;
-        photoW_mm = 28; photoH_mm = 34;
-        gapX_mm = 2.0; gapY_mm = 2.0;
+const DEFAULT_PAPER_CONFIG: Record<PaperCategory, PaperGroup> = {
+  '4x6': {
+    id: '4x6',
+    title: '4×6 इंच',
+    aspect: '101.6 / 152.4',
+    pixelW: 1200,
+    pixelH: 1800,
+    paperWidthMm: 101.6,
+    paperHeightMm: 152.4,
+    variants: [
+      {
+        id: '4x6-1',
+        name: '1 फ़ोटो',
+        subText: 'फुल पेज',
+        rows: 1,
+        cols: 1,
+        gapMm: 0,
+        topMarginMm: 0,
+        sideMarginMm: 0,
+        cellWidthMm: 101.6,
+        cellHeightMm: 152.4,
+        isSingle: true
+      },
+      {
+        id: '4x6-8',
+        name: '8 फ़ोटो',
+        subText: '3.5×4.5 cm',
+        rows: 4,
+        cols: 2,
+        gapMm: 2.0,
+        rowGapMm: 2.0,
+        colGapMm: 2.0,
+        topMarginMm: 3.2,
+        sideMarginMm: 4.3,
+        cellWidthMm: 45.0,
+        cellHeightMm: 35.0
+      },
+      {
+        id: '4x6-9',
+        name: '9 फ़ोटो',
+        subText: '3.0×4.0 cm',
+        rows: 3,
+        cols: 3,
+        gapMm: 2.5,
+        rowGapMm: 2.5,
+        colGapMm: 2.5,
+        topMarginMm: 4.0,
+        sideMarginMm: 3.3,
+        cellWidthMm: 30.0,
+        cellHeightMm: 40.0
+      },
+      {
+        id: '4x6-12',
+        name: '12 फ़ोटो',
+        subText: '3×3.35 cm',
+        rows: 4,
+        cols: 3,
+        gapMm: 2.5,
+        rowGapMm: 2.5,
+        colGapMm: 2.5,
+        topMarginMm: 5.7,
+        sideMarginMm: 3.3,
+        cellWidthMm: 30.0,
+        cellHeightMm: 33.5
       }
-    } else {
-      // A4 पेपर (210 x 297 mm)
-      if (countA4 === 1) {
-        cols = 1; rows = 1;
-        photoW_mm = sheetW_mm - 16;
-        photoH_mm = sheetH_mm - 16;
-      } else if (countA4 === 10) {
-        // विज़िटिंग कार्ड: 88 x 54 mm
-        if (orientation === 'portrait') {
-          cols = 2; rows = 5;
-          photoW_mm = 88; photoH_mm = 54;
-          gapX_mm = 3.0; gapY_mm = 3.0;
-        } else {
-          cols = 5; rows = 2;
-          photoW_mm = 54; photoH_mm = 88;
-          gapX_mm = 3.0; gapY_mm = 3.0;
-        }
-      } else if (countA4 === 24) {
-        // 24 खुला पासपोर्ट: 35 x 45 mm
-        if (orientation === 'portrait') {
-          cols = 4; rows = 6;
-          photoW_mm = 35; photoH_mm = 45;
-          gapX_mm = 6.0; gapY_mm = 2.5;
-        } else {
-          cols = 6; rows = 4;
-          photoW_mm = 45; photoH_mm = 35;
-          gapX_mm = 4.0; gapY_mm = 6.0;
-        }
-      } else if (countA4 === 30) {
-        // 30 मानक पासपोर्ट: 35 x 45 mm
-        if (orientation === 'portrait') {
-          cols = 5; rows = 6;
-          photoW_mm = 35; photoH_mm = 45;
-          gapX_mm = 2.0; gapY_mm = 2.0;
-        } else {
-          cols = 6; rows = 5;
-          photoW_mm = 45; photoH_mm = 35;
-          gapX_mm = 2.0; gapY_mm = 2.0;
-        }
-      } else if (countA4 === 36) {
-        // 36 स्टाम्प/मिनी फोटो: 30 x 40 mm
-        cols = 6; rows = 6;
-        photoW_mm = 30; photoH_mm = 40;
-        gapX_mm = 2.0; gapY_mm = 2.0;
+    ]
+  },
+  '5x7': {
+    id: '5x7',
+    title: '5×7 इंच',
+    aspect: '127 / 178',
+    pixelW: 1500,
+    pixelH: 2100,
+    paperWidthMm: 127.0,
+    paperHeightMm: 177.8,
+    variants: [
+      {
+        id: '5x7-1',
+        name: '1 फ़ोटो',
+        subText: 'फुल पेज',
+        rows: 1,
+        cols: 1,
+        gapMm: 0,
+        topMarginMm: 0,
+        sideMarginMm: 0,
+        cellWidthMm: 127.0,
+        cellHeightMm: 177.8,
+        isSingle: true
+      },
+      {
+        id: '5x7-9',
+        name: '9 फ़ोटो',
+        subText: '3.5×4.5 cm',
+        rows: 3,
+        cols: 3,
+        gapMm: 3.0,
+        rowGapMm: 3.0,
+        colGapMm: 3.0,
+        topMarginMm: 6.0,
+        sideMarginMm: 8.0,
+        cellWidthMm: 35.0,
+        cellHeightMm: 45.0
+      },
+      {
+        id: '5x7-12',
+        name: '12 फ़ोटो',
+        subText: '3.0×4.0 cm',
+        rows: 4,
+        cols: 3,
+        gapMm: 3.0,
+        rowGapMm: 3.0,
+        colGapMm: 3.0,
+        topMarginMm: 4.4,
+        sideMarginMm: 15.5,
+        cellWidthMm: 30.0,
+        cellHeightMm: 40.0
       }
-    }
+    ]
+  },
+  'a4': {
+    id: 'a4',
+    title: 'A4 शीट',
+    aspect: '210 / 297',
+    pixelW: 2480,
+    pixelH: 3508,
+    paperWidthMm: 210.0,
+    paperHeightMm: 297.0,
+    variants: [
+      {
+        id: 'a4-1',
+        name: '1 फ़ोटो',
+        subText: 'फुल A4',
+        rows: 1,
+        cols: 1,
+        gapMm: 0,
+        topMarginMm: 0,
+        sideMarginMm: 0,
+        cellWidthMm: 210.0,
+        cellHeightMm: 297.0,
+        isSingle: true
+      },
+      {
+        id: 'a4-30',
+        name: '30 फ़ोटो',
+        subText: '3.5×4.5 cm',
+        rows: 6,
+        cols: 5,
+        gapMm: 2.5,
+        rowGapMm: 2.5,
+        colGapMm: 2.5,
+        topMarginMm: 5.0,
+        sideMarginMm: 12.5,
+        cellWidthMm: 35.0,
+        cellHeightMm: 45.0
+      },
+      {
+        id: 'a4-36',
+        name: '36 फ़ोटो',
+        subText: '3.0×4.0 cm',
+        rows: 6,
+        cols: 6,
+        gapMm: 4.0,
+        rowGapMm: 4.0,
+        colGapMm: 4.0,
+        topMarginMm: 6.0,
+        sideMarginMm: 5.0,
+        cellWidthMm: 30.0,
+        cellHeightMm: 40.0
+      }
+    ]
+  }
+};
 
-    const total = cols * rows;
-    return { sheetW_mm, sheetH_mm, cols, rows, total, photoW_mm, photoH_mm, gapX_mm, gapY_mm };
+export default function MrPhotoFullDemo() {
+  const [step, setStep] = useState<Step>('upload');
+  const [rawPhoto, setRawPhoto] = useState<string | null>(null);
+
+  const [fitMode, setFitMode] = useState<FitMode>('trim');
+  const [zoomScale, setZoomScale] = useState<number>(100);
+  const [rotation, setRotation] = useState<number>(0);
+  const [hasTitle, setHasTitle] = useState<boolean>(false);
+  const [titleText, setTitleText] = useState<string>('STUDENT NAME');
+  const [hasDate, setHasDate] = useState<boolean>(false);
+  const [dateText, setDateText] = useState<string>(new Date().toISOString().slice(0, 10));
+  const [hasOutline, setHasOutline] = useState<boolean>(true);
+  const [colorEffect, setColorEffect] = useState<ColorEffect>('original');
+
+  const [isBorderless, setIsBorderless] = useState<boolean>(false);
+  const [isSharing, setIsSharing] = useState<boolean>(false);
+  const [finalPhoto, setFinalPhoto] = useState<string | null>(null);
+
+  const [paperCat, setPaperCat] = useState<PaperCategory>('4x6');
+  const [paperConfig, setPaperConfig] = useState(DEFAULT_PAPER_CONFIG);
+  const [activeVariantId, setActiveVariantId] = useState<string>('4x6-9');
+
+  // कस्टम कैटलॉग मोडल स्टेट्स
+  const [showCatalogModal, setShowCatalogModal] = useState<boolean>(false);
+  const [custUnit, setCustUnit] = useState<MeasurementUnit>('mm');
+  const [custStyleName, setCustStyleName] = useState<string>('कस्टम साइज़');
+  const [custPaperType, setCustPaperType] = useState<PaperCategory>('4x6');
+
+  const [custTopMarginStr, setCustTopMarginStr] = useState<string>('4');
+  const [custLeftMarginStr, setCustLeftMarginStr] = useState<string>('4');
+  const [custRowsStr, setCustRowsStr] = useState<string>('3');
+  const [custColsStr, setCustColsStr] = useState<string>('3');
+  const [custRowGapStr, setCustRowGapStr] = useState<string>('3');
+  const [custColGapStr, setCustColGapStr] = useState<string>('3');
+  const [custCellWStr, setCustCellWStr] = useState<string>('30');
+  const [custCellHStr, setCustCellHStr] = useState<string>('40');
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('examsewa_custom_layouts');
+      if (saved) {
+        const parsed: Record<string, GridVariant[]> = JSON.parse(saved);
+        setPaperConfig((prev) => {
+          const updated = { ...prev };
+          (Object.keys(parsed) as PaperCategory[]).forEach((cat) => {
+            if (updated[cat]) {
+              const defIds = DEFAULT_PAPER_CONFIG[cat].variants.map((v) => v.id);
+              const customOnly = parsed[cat].filter((v) => !defIds.includes(v.id));
+              updated[cat] = {
+                ...updated[cat],
+                variants: [...DEFAULT_PAPER_CONFIG[cat].variants, ...customOnly]
+              };
+            }
+          });
+          return updated;
+        });
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }, []);
+
+  const currentPaper = paperConfig[paperCat];
+  const activeVariant =
+    currentPaper.variants.find((v) => v.id === activeVariantId) || currentPaper.variants[0];
+
+  const totalSlots = activeVariant.rows * activeVariant.cols;
+  const [slots, setSlots] = useState<(string | null)[]>([]);
+
+  const galleryRef = useRef<HTMLInputElement | null>(null);
+  const cameraRef = useRef<HTMLInputElement | null>(null);
+
+  const handlePhotoSelect = (file: File) => {
+    const url = URL.createObjectURL(file);
+    setRawPhoto(url);
+    setRotation(0);
+    setFitMode('trim');
+    setZoomScale(100);
+    setColorEffect('original');
+    setStep('options');
   };
 
-  const spec = getLayoutSpec();
-  const { cols, rows, total } = spec;
+  const getFilterStyle = (effect: ColorEffect) => {
+    switch (effect) {
+      case 'bw':
+        return 'grayscale(100%) contrast(110%)';
+      case 'bright':
+        return 'brightness(110%) contrast(104%) saturate(102%)';
+      case 'studio':
+        return 'contrast(108%) saturate(112%) brightness(103%)';
+      default:
+        return 'none';
+    }
+  };
 
-  // 300 DPI पर मिलीमीटर आधारित कैनवास निर्माण
-  const generateCanvas = async (): Promise<HTMLCanvasElement | null> => {
-    if (!imageSrc) return null;
+  const handleApplyOptions = () => {
+    if (!rawPhoto) return;
 
     const img = new Image();
-    img.src = imageSrc;
-    await new Promise((res) => { img.onload = res; });
+    img.src = rawPhoto;
+    img.onload = () => {
+      const w = 840;
+      const h = 1080;
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d', { alpha: false });
+      if (!ctx) return;
 
-    const sheetW = Math.round(spec.sheetW_mm * MM_TO_PX);
-    const sheetH = Math.round(spec.sheetH_mm * MM_TO_PX);
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
 
-    const canvas = document.createElement('canvas');
-    canvas.width = sheetW;
-    canvas.height = sheetH;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return null;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, w, h);
+      ctx.filter = getFilterStyle(colorEffect);
 
-    ctx.fillStyle = '#FFFFFF';
-    ctx.fillRect(0, 0, sheetW, sheetH);
-
-    const photoW = spec.photoW_mm * MM_TO_PX;
-    const photoH = spec.photoH_mm * MM_TO_PX;
-    const gapX = spec.gapX_mm * MM_TO_PX;
-    const gapY = spec.gapY_mm * MM_TO_PX;
-
-    // संपूर्ण ग्रिड का कुल विस्तार
-    const totalGridW = (spec.cols * photoW) + ((spec.cols - 1) * gapX);
-    const totalGridH = (spec.rows * photoH) + ((spec.rows - 1) * gapY);
-
-    // 💥 ऑटो-सेंटरिंग (Auto-Centering): चारों तरफ बिल्कुल बराबर मार्जिन
-    const startX = Math.max(0, (sheetW - totalGridW) / 2);
-    const startY = Math.max(0, (sheetH - totalGridH) / 2);
-
-    ctx.filter = `brightness(${brightness}%) contrast(${contrast}%)`;
-
-    for (let i = 0; i < total; i++) {
-      if (disabledCells.includes(i)) continue;
-
-      const c = i % spec.cols;
-      const r = Math.floor(i / spec.cols);
-
-      const cellX = startX + c * (photoW + gapX);
-      const cellY = startY + r * (photoH + gapY);
-
-      let targetW = photoW;
-      let targetH = photoH;
-
-      // Fit the Cell लॉजिक (बिना फोटो कटे बॉक्स में सटीक फिट)
-      if (fitTheCell && img.width && img.height) {
-        const isRotated = photoRotation === 90 || photoRotation === 270;
-        const srcW = isRotated ? img.height : img.width;
-        const srcH = isRotated ? img.width : img.height;
-        const scale = Math.min(photoW / srcW, photoH / srcH);
-        targetW = srcW * scale;
-        targetH = srcH * scale;
-      }
-
-      const centerX = cellX + photoW / 2;
-      const centerY = cellY + photoH / 2;
+      const textSpace = (hasTitle ? 48 : 0) + (hasDate ? 40 : 0);
+      const photoAreaH = h - textSpace - 24;
+      const photoAreaW = w - 24;
 
       ctx.save();
-      ctx.translate(centerX, centerY);
-      ctx.rotate((photoRotation * Math.PI) / 180);
+      ctx.translate(w / 2, (photoAreaH + 24) / 2);
+      ctx.rotate((rotation * Math.PI) / 180);
 
-      const isRotated90or270 = photoRotation === 90 || photoRotation === 270;
-      const drawW = isRotated90or270 ? targetH : targetW;
-      const drawH = isRotated90or270 ? targetW : targetH;
+      const imgAspect = img.width / img.height;
+      const targetAspect = photoAreaW / photoAreaH;
 
+      let drawW = photoAreaW;
+      let drawH = photoAreaH;
+
+      if (fitMode === 'trim') {
+        if (imgAspect > targetAspect) {
+          drawH = photoAreaH;
+          drawW = photoAreaH * imgAspect;
+        } else {
+          drawW = photoAreaW;
+          drawH = photoAreaW / imgAspect;
+        }
+      } else if (fitMode === 'no-trim') {
+        if (imgAspect > targetAspect) {
+          drawW = photoAreaW;
+          drawH = photoAreaW / imgAspect;
+        } else {
+          drawH = photoAreaH;
+          drawW = photoAreaH * imgAspect;
+        }
+      } else if (fitMode === 'adjust') {
+        const scale = zoomScale / 100;
+        if (imgAspect > targetAspect) {
+          drawH = photoAreaH * scale;
+          drawW = drawH * imgAspect;
+        } else {
+          drawW = photoAreaW * scale;
+          drawH = drawW / imgAspect;
+        }
+      }
+
+      ctx.beginPath();
+      ctx.rect(-photoAreaW / 2, -photoAreaH / 2, photoAreaW, photoAreaH);
+      ctx.clip();
       ctx.drawImage(img, -drawW / 2, -drawH / 2, drawW, drawH);
-
-      // सॉलिड ब्लैक बॉर्डर
-      if (showBorder) {
-        ctx.strokeStyle = '#000000';
-        ctx.lineWidth = total === 1 ? 4 : 2.5;
-        ctx.strokeRect(-drawW / 2, -drawH / 2, drawW, drawH);
-      }
-
       ctx.restore();
-    }
 
-    return canvas;
-  };
+      ctx.filter = 'none';
 
-  const handleDownload = async (format: 'jpg' | 'pdf') => {
-    setIsProcessing(true);
-    try {
-      const canvas = await generateCanvas();
-      if (!canvas) return;
-
-      if (format === 'jpg') {
-        canvas.toBlob((blob) => {
-          if (!blob) return;
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = `sheet_${paperType}_${total}photos.jpg`;
-          a.click();
-          URL.revokeObjectURL(url);
-        }, 'image/jpeg', 0.98);
-      } else {
-        const imgDataUrl = canvas.toDataURL('image/jpeg', 0.96);
-        const base64Data = imgDataUrl.split(',')[1];
-        const binaryString = atob(base64Data);
-        const imgBytes = new Uint8Array(binaryString.length);
-        for (let i = 0; i < binaryString.length; i++) {
-          imgBytes[i] = binaryString.charCodeAt(i);
-        }
-
-        // PDF Points (72 pt per inch => mm * 72 / 25.4)
-        const pW = (spec.sheetW_mm * 72) / 25.4;
-        const pH = (spec.sheetH_mm * 72) / 25.4;
-
-        const pdfHeader = `%PDF-1.4\n`;
-        const obj1 = `1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n`;
-        const obj2 = `2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n`;
-        const obj3 = `3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pW} ${pH}] /Resources << /XObject << /Im1 4 0 R >> >> /Contents 5 0 R >>\nendobj\n`;
-        const obj4H = `4 0 obj\n<< /Type /XObject /Subtype /Image /Width ${canvas.width} /Height ${canvas.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${imgBytes.length} >>\nstream\n`;
-        const obj4F = `\nendstream\nendobj\n`;
-        const streamC = `q\n${pW} 0 0 ${pH} 0 0 cm\n/Im1 Do\nQ`;
-        const obj5 = `5 0 obj\n<< /Length ${streamC.length} >>\nstream\n${streamC}\nendstream\nendobj\n`;
-
-        const enc = new TextEncoder();
-        const bHeader = enc.encode(pdfHeader);
-        const bObj1 = enc.encode(obj1);
-        const bObj2 = enc.encode(obj2);
-        const bObj3 = enc.encode(obj3);
-        const bObj4H = enc.encode(obj4H);
-        const bObj4F = enc.encode(obj4F);
-        const bObj5 = enc.encode(obj5);
-
-        const off1 = bHeader.length;
-        const off2 = off1 + bObj1.length;
-        const off3 = off2 + bObj2.length;
-        const off4 = off3 + bObj3.length;
-        const off5 = off4 + bObj4H.length + imgBytes.length + bObj4F.length;
-        const xrefOff = off5 + bObj5.length;
-
-        const xref = `xref\n0 6\n0000000000 65535 f \n${String(off1).padStart(10, '0')} 00000 n \n${String(off2).padStart(10, '0')} 00000 n \n${String(off3).padStart(10, '0')} 00000 n \n${String(off4).padStart(10, '0')} 00000 n \n${String(off5).padStart(10, '0')} 00000 n \ntrailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xrefOff}\n%%EOF`;
-        const bXref = enc.encode(xref);
-
-        const finalPdf = new Uint8Array(xrefOff + bXref.length);
-        let cur = 0;
-        finalPdf.set(bHeader, cur); cur += bHeader.length;
-        finalPdf.set(bObj1, cur); cur += bObj1.length;
-        finalPdf.set(bObj2, cur); cur += bObj2.length;
-        finalPdf.set(bObj3, cur); cur += bObj3.length;
-        finalPdf.set(bObj4H, cur); cur += bObj4H.length;
-        finalPdf.set(imgBytes, cur); cur += imgBytes.length;
-        finalPdf.set(bObj4F, cur); cur += bObj4F.length;
-        finalPdf.set(bObj5, cur); cur += bObj5.length;
-        finalPdf.set(bXref, cur);
-
-        const blob = new Blob([finalPdf], { type: 'application/pdf' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `sheet_${paperType}_${total}photos.pdf`;
-        a.click();
-        URL.revokeObjectURL(url);
+      if (hasOutline) {
+        ctx.strokeStyle = '#1e293b';
+        ctx.lineWidth = 4;
+        ctx.strokeRect(10, 10, w - 20, h - 20);
       }
-    } finally {
-      setIsProcessing(false);
-    }
-  };
 
-  // 💥 100% स्केल प्रिंट (Absolute Scale, Zero Margin)
-  const handlePrint = async () => {
-    setIsProcessing(true);
-    try {
-      const canvas = await generateCanvas();
-      if (!canvas) return;
+      if (hasTitle || hasDate) {
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(12, h - textSpace - 16, w - 24, textSpace + 4);
+        ctx.fillStyle = '#000000';
+        ctx.textAlign = 'center';
 
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.98);
-
-      const printIframe = document.createElement('iframe');
-      printIframe.style.position = 'fixed';
-      printIframe.style.right = '0';
-      printIframe.style.bottom = '0';
-      printIframe.style.width = '0';
-      printIframe.style.height = '0';
-      printIframe.style.border = '0';
-      document.body.appendChild(printIframe);
-
-      const printDoc = printIframe.contentWindow?.document;
-      if (!printDoc) return;
-
-      const pageSizeRule = paperType === '4x6' ? '4in 6in' : 'A4';
-
-      printDoc.open();
-      printDoc.write(`
-        <!DOCTYPE html>
-        <html>
-          <head>
-            <title>Print Passport Sheet</title>
-            <style>
-              @page {
-                size: ${pageSizeRule} ${orientation};
-                margin: 0mm !important;
-              }
-              html, body {
-                margin: 0 !important;
-                padding: 0 !important;
-                width: 100%;
-                height: 100%;
-                background: #FFFFFF;
-                overflow: hidden;
-              }
-              .print-container {
-                width: 100%;
-                height: 100%;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-              }
-              img {
-                width: 100%;
-                height: 100%;
-                object-fit: contain;
-                display: block;
-              }
-            </style>
-          </head>
-          <body>
-            <div class="print-container">
-              <img src="${dataUrl}" onload="setTimeout(() => { window.print(); }, 250);" />
-            </div>
-          </body>
-        </html>
-      `);
-      printDoc.close();
-
-      setTimeout(() => {
-        if (document.body.contains(printIframe)) {
-          document.body.removeChild(printIframe);
+        if (hasTitle && hasDate) {
+          ctx.font = 'bold 36px sans-serif';
+          ctx.fillText(titleText, w / 2, h - 56);
+          ctx.font = 'bold 28px sans-serif';
+          ctx.fillText(dateText, w / 2, h - 20);
+        } else if (hasTitle) {
+          ctx.font = 'bold 38px sans-serif';
+          ctx.fillText(titleText, w / 2, h - 24);
+        } else if (hasDate) {
+          ctx.font = 'bold 32px sans-serif';
+          ctx.fillText(dateText, w / 2, h - 24);
         }
-      }, 3000);
-    } finally {
-      setIsProcessing(false);
+      }
+
+      const resultUrl = canvas.toDataURL('image/jpeg', 0.98);
+      setFinalPhoto(resultUrl);
+      setSlots(Array(totalSlots).fill(resultUrl));
+      setStep('print-sheet');
+    };
+  };
+
+  const handleCategoryChange = (cat: PaperCategory) => {
+    setPaperCat(cat);
+    const firstVar = paperConfig[cat].variants.find((v) => !v.isSingle) || paperConfig[cat].variants[0];
+    setActiveVariantId(firstVar.id);
+    if (finalPhoto) {
+      setSlots(Array(firstVar.rows * firstVar.cols).fill(finalPhoto));
     }
   };
+
+  const handleVariantChange = (variant: GridVariant) => {
+    setActiveVariantId(variant.id);
+    if (finalPhoto) {
+      setSlots(Array(variant.rows * variant.cols).fill(finalPhoto));
+    }
+  };
+
+      const handleDirectPrint = () => {
+    const printArea = document.getElementById('print-sheet-area');
+    if (!printArea) {
+      window.print();
+      return;
+    }
+
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = '0';
+    document.body.appendChild(iframe);
+
+    const doc = iframe.contentWindow?.document;
+    if (!doc) {
+      window.print();
+      return;
+    }
+
+    // एक्टिव पेपर का आस्पेक्ट रेशियो और स्टाइल निकालना
+    const paperAspect = currentPaper?.aspect || '4/6';
+    const isSingle = activeVariant?.isSingle;
+
+    doc.open();
+    doc.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Photo Print</title>
+          <style>
+            @page {
+              size: auto;
+              margin: 0mm;
+            }
+            * {
+              box-sizing: border-box;
+              margin: 0;
+              padding: 0;
+            }
+            html, body {
+              width: 100%;
+              height: 100%;
+              background: #ffffff;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              overflow: hidden;
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+            }
+            .sheet-wrapper {
+              width: 100%;
+              height: 100%;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+            }
+            #print-sheet-area {
+              width: 100% !important;
+              height: 100% !important;
+              max-width: 100% !important;
+              max-height: 100% !important;
+              aspect-ratio: ${paperAspect} !important;
+              display: flex !important;
+              align-items: center !important;
+              justify-content: center !important;
+              border: none !important;
+              box-shadow: none !important;
+              margin: 0 !important;
+              padding: 0 !important;
+              background: #ffffff !important;
+            }
+            #print-sheet-area > div {
+              width: 100% !important;
+              height: 100% !important;
+              display: flex !important;
+              align-items: center !important;
+              justify-content: center !important;
+              padding: ${isBorderless ? '0mm' : '3mm'} !important;
+            }
+            #print-sheet-area img {
+              width: 100% !important;
+              height: 100% !important;
+              max-width: 100% !important;
+              max-height: 100% !important;
+              object-fit: ${isSingle ? (isBorderless ? 'cover' : 'contain') : 'cover'} !important;
+              object-position: center center !important;
+              display: block !important;
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="sheet-wrapper">
+            ${printArea.outerHTML}
+          </div>
+        </body>
+      </html>
+    `);
+    doc.close();
+
+    iframe.contentWindow?.focus();
+    setTimeout(() => {
+      iframe.contentWindow?.print();
+      setTimeout(() => {
+        document.body.removeChild(iframe);
+      }, 2000);
+    }, 450);
+  };
+
+  const toggleSlot = (idx: number) => {
+    if (!finalPhoto) return;
+    setSlots((prev) => {
+      const next = [...prev];
+      next[idx] = next[idx] ? null : finalPhoto;
+      return next;
+    });
+  };
+
+  const handleUnitSwitch = (newUnit: MeasurementUnit) => {
+    if (newUnit === custUnit) return;
+    const factor = newUnit === 'cm' ? 0.1 : 10;
+    setCustUnit(newUnit);
+
+    const convert = (valStr: string) => {
+      const num = parseFloat(valStr);
+      if (isNaN(num)) return '';
+      const res = num * factor;
+      return newUnit === 'cm' ? res.toFixed(2).replace(/\.?0+$/, '') : Math.round(res).toString();
+    };
+
+    setCustTopMarginStr(convert(custTopMarginStr));
+    setCustLeftMarginStr(convert(custLeftMarginStr));
+    setCustRowGapStr(convert(custRowGapStr));
+    setCustColGapStr(convert(custColGapStr));
+    setCustCellWStr(convert(custCellWStr));
+    setCustCellHStr(convert(custCellHStr));
+  };
+
+  const openCustomModal = () => {
+    setCustPaperType(paperCat);
+    setCustUnit('mm');
+
+    setCustRowsStr(activeVariant.rows.toString());
+    setCustColsStr(activeVariant.cols.toString());
+    setCustRowGapStr((activeVariant.rowGapMm ?? activeVariant.gapMm).toString());
+    setCustColGapStr((activeVariant.colGapMm ?? activeVariant.gapMm).toString());
+    setCustTopMarginStr(activeVariant.topMarginMm.toString());
+    setCustLeftMarginStr(activeVariant.sideMarginMm.toString());
+    setCustCellWStr(activeVariant.cellWidthMm.toString());
+    setCustCellHStr(activeVariant.cellHeightMm.toString());
+
+    setCustStyleName(activeVariant.isCustom ? activeVariant.name : `कस्टम ${activeVariant.rows * activeVariant.cols} फ़ोटो`);
+    setShowCatalogModal(true);
+  };
+
+  const toMm = (valStr: string, fallback: number) => {
+    const n = parseFloat(valStr);
+    if (isNaN(n) || n < 0) return fallback;
+    return custUnit === 'cm' ? n * 10 : n;
+  };
+
+  const previewPaperW = paperConfig[custPaperType].paperWidthMm;
+  const previewPaperH = paperConfig[custPaperType].paperHeightMm;
+  const previewRows = Math.max(1, parseInt(custRowsStr) || 1);
+  const previewCols = Math.max(1, parseInt(custColsStr) || 1);
+  const previewTopMargin = toMm(custTopMarginStr, 4);
+  const previewLeftMargin = toMm(custLeftMarginStr, 4);
+  const previewRowGap = toMm(custRowGapStr, 3);
+  const previewColGap = toMm(custColGapStr, 3);
+  const previewCellW = toMm(custCellWStr, 30);
+  const previewCellH = toMm(custCellHStr, 40);
+
+  const totalUsedWidth = previewLeftMargin + previewCols * previewCellW + (previewCols - 1) * previewColGap;
+  const totalUsedHeight = previewTopMargin + previewRows * previewCellH + (previewRows - 1) * previewRowGap;
+
+  const isWidthOverflow = totalUsedWidth > previewPaperW;
+  const isHeightOverflow = totalUsedHeight > previewPaperH;
+  const isAnyOverflow = isWidthOverflow || isHeightOverflow;
+
+  const handleSaveCustomLayout = () => {
+    if (isAnyOverflow) return;
+
+    const newId = `custom-${Date.now()}`;
+    const newVariant: GridVariant = {
+      id: newId,
+      name: custStyleName || `${previewRows * previewCols} फ़ोटो`,
+      subText: `${previewCellW.toFixed(1)}×${previewCellH.toFixed(1)} mm • कस्टम`,
+      rows: previewRows,
+      cols: previewCols,
+      gapMm: previewColGap,
+      rowGapMm: previewRowGap,
+      colGapMm: previewColGap,
+      topMarginMm: previewTopMargin,
+      sideMarginMm: previewLeftMargin,
+      cellWidthMm: previewCellW,
+      cellHeightMm: previewCellH,
+      isCustom: true
+    };
+
+    const targetCat = custPaperType;
+    const updatedVariants = [...paperConfig[targetCat].variants, newVariant];
+
+    const updatedConfig = {
+      ...paperConfig,
+      [targetCat]: {
+        ...paperConfig[targetCat],
+        variants: updatedVariants
+      }
+    };
+
+    setPaperConfig(updatedConfig);
+    setPaperCat(targetCat);
+    setActiveVariantId(newId);
+
+    if (finalPhoto) {
+      setSlots(Array(newVariant.rows * newVariant.cols).fill(finalPhoto));
+    }
+
+    try {
+      const toStore: Record<string, GridVariant[]> = {
+        '4x6': updatedConfig['4x6'].variants.filter((v) => v.isCustom),
+        '5x7': updatedConfig['5x7'].variants.filter((v) => v.isCustom),
+        'a4': updatedConfig['a4'].variants.filter((v) => v.isCustom)
+      };
+      localStorage.setItem('examsewa_custom_layouts', JSON.stringify(toStore));
+    } catch (e) {
+      console.error(e);
+    }
+
+    setShowCatalogModal(false);
+  };
+
+  // केवल कस्टम लेआउट को हटाने का सुरक्षित फंक्शन
+  const handleDeleteCurrentCustom = () => {
+    if (!activeVariant.isCustom) return;
+
+    if (!window.confirm(`क्या आप कस्टम लेआउट "${activeVariant.name}" को हटाना चाहते हैं?`)) {
+      return;
+    }
+
+    const targetCat = paperCat;
+    const remaining = paperConfig[targetCat].variants.filter((v) => v.id !== activeVariant.id);
+    const fallbackVariant = remaining[0];
+
+    const updatedConfig = {
+      ...paperConfig,
+      [targetCat]: {
+        ...paperConfig[targetCat],
+        variants: remaining
+      }
+    };
+
+    setPaperConfig(updatedConfig);
+    setActiveVariantId(fallbackVariant.id);
+
+    if (finalPhoto) {
+      setSlots(Array(fallbackVariant.rows * fallbackVariant.cols).fill(finalPhoto));
+    }
+
+    try {
+      const toStore: Record<string, GridVariant[]> = {
+        '4x6': updatedConfig['4x6'].variants.filter((v) => v.isCustom),
+        '5x7': updatedConfig['5x7'].variants.filter((v) => v.isCustom),
+        'a4': updatedConfig['a4'].variants.filter((v) => v.isCustom)
+      };
+      localStorage.setItem('examsewa_custom_layouts', JSON.stringify(toStore));
+    } catch (e) {
+      console.error(e);
+    }
+
+    setShowCatalogModal(false);
+  };
+
+  const handleShareSheet = async () => {
+    if (!finalPhoto || isSharing) return;
+    setIsSharing(true);
+
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = currentPaper.pixelW;
+      canvas.height = currentPaper.pixelH;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      const loadedImg = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+        img.src = finalPhoto;
+      });
+
+      if (activeVariant.isSingle) {
+        const borderPadding = isBorderless ? 0 : Math.round(canvas.width * 0.03);
+        const drawW = canvas.width - borderPadding * 2;
+        const drawH = canvas.height - borderPadding * 2;
+        ctx.drawImage(loadedImg, borderPadding, borderPadding, drawW, drawH);
+      } else {
+        const mmToPx = canvas.width / currentPaper.paperWidthMm;
+        const topPx = activeVariant.topMarginMm * mmToPx;
+        const sidePx = activeVariant.sideMarginMm * mmToPx;
+        const rowGapPx = (activeVariant.rowGapMm ?? activeVariant.gapMm) * mmToPx;
+        const colGapPx = (activeVariant.colGapMm ?? activeVariant.gapMm) * mmToPx;
+
+        const cellW = activeVariant.cellWidthMm * mmToPx;
+        const cellH = activeVariant.cellHeightMm * mmToPx;
+
+        for (let r = 0; r < activeVariant.rows; r++) {
+          for (let c = 0; c < activeVariant.cols; c++) {
+            const idx = r * activeVariant.cols + c;
+            if (slots[idx]) {
+              const x = sidePx + c * (cellW + colGapPx);
+              const y = topPx + r * (cellH + rowGapPx);
+              ctx.drawImage(loadedImg, x, y, cellW, cellH);
+            }
+          }
+        }
+      }
+
+      canvas.toBlob(async (blob) => {
+        if (!blob) return;
+        const file = new File([blob], `examsewa-print-${paperCat}.jpg`, { type: 'image/jpeg' });
+
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          await navigator.share({
+            title: 'ExamSewa Photo Print Sheet',
+            text: 'WiFi Printer / Print App के लिए शीट',
+            files: [file]
+          });
+        } else {
+          const downloadUrl = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = downloadUrl;
+          a.download = `examsewa-print-${paperCat}.jpg`;
+          a.click();
+          URL.revokeObjectURL(downloadUrl);
+        }
+        setIsSharing(false);
+      }, 'image/jpeg', 0.98);
+    } catch (err) {
+      console.error(err);
+      setIsSharing(false);
+    }
+  };
+
+  const currentPaperW = currentPaper.paperWidthMm;
+  const currentPaperH = currentPaper.paperHeightMm;
+  const currentTopMarginPercent = (activeVariant.topMarginMm / currentPaperH) * 100;
+  const currentLeftMarginPercent = (activeVariant.sideMarginMm / currentPaperW) * 100;
+  const currentCellWPercent = (activeVariant.cellWidthMm / currentPaperW) * 100;
+  const currentCellHPercent = (activeVariant.cellHeightMm / currentPaperH) * 100;
+  const currentRowGapPercent = ((activeVariant.rowGapMm ?? activeVariant.gapMm) / currentPaperH) * 100;
+  const currentColGapPercent = ((activeVariant.colGapMm ?? activeVariant.gapMm) / currentPaperW) * 100;
+
+  const mainUsedHeightMm =
+    activeVariant.topMarginMm +
+    activeVariant.rows * activeVariant.cellHeightMm +
+    (activeVariant.rows - 1) * (activeVariant.rowGapMm ?? activeVariant.gapMm);
+  const remainingBottomMm = Math.max(0, currentPaperH - mainUsedHeightMm);
 
   return (
-    <div className="h-screen bg-slate-100 text-slate-900 flex flex-col justify-between overflow-hidden select-none">
-      
-      {/* हेडर */}
-      <header className="border-b border-slate-200 bg-white px-4 h-11 flex items-center justify-between shrink-0 shadow-xs">
-        <div className="flex items-center gap-3">
-          <Link href="/" className="text-slate-500 hover:text-slate-900 text-xs font-bold">
-            ← होम
-          </Link>
-          <span className="text-slate-300">|</span>
-          <span className="text-xs sm:text-sm font-black text-slate-900 flex items-center gap-1.5">
-            <span>🖨️</span> 4×6 व A4 पासपोर्ट शीट स्टूडियो
+    <div className="min-h-screen bg-slate-100 text-slate-800 flex flex-col font-sans select-none">
+      <header className="bg-white border-b border-slate-200 px-3 sm:px-4 py-2.5 flex items-center justify-between sticky top-0 z-50 shadow-sm text-slate-900">
+        <div className="flex items-center gap-2">
+          <span className="text-xl">📷</span>
+          <span className="font-extrabold text-slate-900 text-sm sm:text-base tracking-wide">
+            ExamSewa - Mr. Photo
           </span>
         </div>
 
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-300">
-            {paperType === '4x6' ? '4×6 शीट' : 'A4 शीट'} ({total} {total === 10 ? 'कार्ड/फ़ोटो' : 'फ़ोटो'})
-          </span>
-        </div>
+        {step === 'print-sheet' && (
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            <button
+              onClick={() => setStep('options')}
+              className="px-2.5 sm:px-3 py-1.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-xs rounded-lg shadow-sm cursor-pointer transition flex items-center gap-1 active:scale-95 border border-amber-500/40"
+            >
+              <span>✏️</span>
+              <span>एडिट</span>
+            </button>
+            <button
+              onClick={handleShareSheet}
+              disabled={isSharing}
+              className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-lg shadow cursor-pointer transition flex items-center gap-1 active:scale-95"
+            >
+              {isSharing ? '⌛' : '🔗'} शेयर
+            </button>
+            <button
+              onClick={handleDirectPrint}
+              className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-lg shadow cursor-pointer transition flex items-center gap-1 active:scale-95"
+            >
+              🖨️ प्रिंट
+            </button>
+          </div>
+        )}
       </header>
 
-      {/* मुख्य कार्यक्षेत्र */}
-      <main className="flex-1 flex flex-col lg:flex-row overflow-hidden p-2.5 gap-2.5">
-        
-        {/* बायाँ भाग: प्रीव्यू */}
-        <div className="flex-1 bg-slate-200/90 rounded-2xl border-2 border-slate-300 shadow-inner p-2.5 flex flex-col items-center justify-center relative overflow-hidden">
-          
-          <div className="w-full flex items-center justify-between mb-1 text-[11px] font-bold text-slate-700 px-2 shrink-0">
-            <span>
-              कागज़: {paperType === '4x6' ? '4×6 इंच' : 'A4 बड़ा पेपर'} 
-              <span className="text-blue-700 font-black ml-1.5">
-                ({orientation === 'portrait' ? 'पोर्ट्रेट' : 'लैंडस्केप'})
-              </span>
-              <span className="text-emerald-700 font-black ml-1.5">
-                • {spec.photoW_mm}×{spec.photoH_mm} mm
-              </span>
-            </span>
-            <span className="text-slate-600 font-bold">सेल पर क्लिक करके फोटो हटाएँ/जोड़ें</span>
-          </div>
+      <main className="flex-1 flex flex-col items-center p-2 sm:p-4 lg:p-6 w-full">
+        {step === 'upload' && (
+          <div className="w-full max-w-sm my-auto bg-white border border-slate-200 p-6 rounded-2xl shadow-lg text-center flex flex-col items-center">
+            <div className="w-14 h-14 bg-blue-500/10 text-blue-400 rounded-full flex items-center justify-center text-2xl mb-4 border border-blue-500/20">
+              📸
+            </div>
+            <h2 className="text-lg font-bold text-slate-900 mb-1">पासपोर्ट फोटो चुनें</h2>
+            <p className="text-xs text-slate-600 mb-6">प्रिंट शीट तैयार करने के लिए फ़ोटो अपलोड करें</p>
 
-          <div className="w-full flex-1 flex items-center justify-center overflow-hidden p-1">
-            <div
-              className="bg-white rounded-xl shadow-xl border-2 border-slate-900 transition-all flex flex-col justify-center max-h-[calc(100vh-125px)] max-w-full p-2.5"
-              style={{
-                aspectRatio: `${spec.sheetW_mm} / ${spec.sheetH_mm}`,
-                height: '92%'
-              }}
-            >
-              {/* वास्तविक आनुपातिक ग्रिड */}
+            <div className="w-full flex flex-col gap-3">
+              <button
+                onClick={() => galleryRef.current?.click()}
+                className="w-full py-3.5 bg-blue-600 hover:bg-blue-500 text-white font-bold text-sm rounded-xl shadow-lg flex items-center justify-center gap-2 cursor-pointer transition active:scale-95"
+              >
+                📁 गैलरी से फोटो चुनें
+              </button>
+              <button
+                onClick={() => cameraRef.current?.click()}
+                className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm rounded-xl shadow-lg flex items-center justify-center gap-2 cursor-pointer transition active:scale-95"
+              >
+                📷 कैमरे से फोटो खींचें
+              </button>
+            </div>
+
+            <input
+              ref={galleryRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => e.target.files?.[0] && handlePhotoSelect(e.target.files[0])}
+            />
+            <input
+              ref={cameraRef}
+              type="file"
+              accept="image/*"
+              capture="user"
+              className="hidden"
+              onChange={(e) => e.target.files?.[0] && handlePhotoSelect(e.target.files[0])}
+            />
+          </div>
+        )}
+
+        {/* ऑप्शन्स विंडो */}
+        {step === 'options' && rawPhoto && (
+          <div className="w-full max-w-2xl bg-[#c0c0c0] text-black border-2 border-[#dfdfdf] shadow-2xl rounded p-3 sm:p-5 font-sans">
+            <div className="text-xs font-bold text-slate-700 mb-3 border-b border-slate-400 pb-1 flex justify-between">
+              <span>ExamSewa - Cell Options</span>
+              <button
+                onClick={() => setStep('upload')}
+                className="text-red-700 font-bold hover:underline cursor-pointer"
+              >
+                ✕ बंद करें
+              </button>
+            </div>
+
+            <div className="flex flex-col md:flex-row gap-4">
+              <div className="flex flex-col items-center justify-center bg-white border border-slate-500 p-3 shadow-inner min-w-[220px]">
+                <div
+                  className={`w-44 h-56 bg-slate-100 flex flex-col items-center justify-center relative overflow-hidden transition-all ${
+                    hasOutline ? 'border-2 border-black' : 'border border-dashed border-slate-300'
+                  }`}
+                >
+                  <img
+                    src={rawPhoto}
+                    alt="preview"
+                    style={{
+                      transform: `rotate(${rotation}deg) scale(${fitMode === 'adjust' ? zoomScale / 100 : 1})`,
+                      filter: getFilterStyle(colorEffect),
+                      objectFit: fitMode === 'trim' ? 'cover' : 'contain'
+                    }}
+                    className="w-full h-full pointer-events-none transition-all duration-150"
+                  />
+                  {(hasTitle || hasDate) && (
+                    <div className="absolute bottom-1 left-1 right-1 bg-white/95 px-1 py-0.5 text-center leading-tight border-t border-slate-300">
+                      {hasTitle && <div className="text-[10px] font-bold text-black">{titleText}</div>}
+                      {hasDate && <div className="text-[9px] text-black">{dateText}</div>}
+                    </div>
+                  )}
+                </div>
+                <span className="text-[10px] text-slate-600 mt-2 font-mono">
+                  Cell: 35 × 45 mm (HD Preview)
+                </span>
+              </div>
+
+              <div className="flex-1 flex flex-col gap-3 text-xs">
+                <fieldset className="border border-slate-500 p-2.5 rounded">
+                  <legend className="px-1 font-bold text-slate-800">Size in the Cell (साइज़ सेटिंग)</legend>
+                  <div className="flex flex-col gap-2">
+                    <label className="flex items-center gap-2 cursor-pointer bg-white/40 p-1.5 rounded">
+                      <input
+                        type="radio"
+                        name="fitMode"
+                        checked={fitMode === 'trim'}
+                        onChange={() => setFitMode('trim')}
+                        className="w-4 h-4"
+                      />
+                      <div>
+                        <span className="font-bold text-slate-900 block">Fit the Cell (Trimming) — पूरा डिब्बा भरें</span>
+                        <span className="text-[10px] text-slate-600">डिब्बा 100% भरेगा, कोई खाली जगह नहीं छूटेगी (अनुशंसित)</span>
+                      </div>
+                    </label>
+
+                    <label className="flex items-center gap-2 cursor-pointer bg-white/40 p-1.5 rounded">
+                      <input
+                        type="radio"
+                        name="fitMode"
+                        checked={fitMode === 'no-trim'}
+                        onChange={() => setFitMode('no-trim')}
+                        className="w-4 h-4"
+                      />
+                      <div>
+                        <span className="font-bold text-slate-900 block">Fit the Cell (No Trimming) — पूरी फ़ोटो दिखाएँ</span>
+                        <span className="text-[10px] text-slate-600">फ़ोटो का कुछ भी नहीं कटेगा, पूरी तस्वीर सुरक्षित रहेगी</span>
+                      </div>
+                    </label>
+
+                    <label className="flex items-center gap-2 cursor-pointer bg-white/40 p-1.5 rounded">
+                      <input
+                        type="radio"
+                        name="fitMode"
+                        checked={fitMode === 'adjust'}
+                        onChange={() => setFitMode('adjust')}
+                        className="w-4 h-4"
+                      />
+                      <div className="flex-1">
+                        <span className="font-bold text-slate-900 block">Adjust (कस्टम ज़ूम)</span>
+                        <div className="flex items-center gap-2 mt-1">
+                          <input
+                            type="range"
+                            min="20"
+                            max="200"
+                            value={zoomScale}
+                            disabled={fitMode !== 'adjust'}
+                            onChange={(e) => setZoomScale(Number(e.target.value))}
+                            className="flex-1 cursor-pointer"
+                          />
+                          <span className="w-10 text-right font-mono font-bold text-blue-800">{zoomScale}%</span>
+                        </div>
+                      </div>
+                    </label>
+                  </div>
+                </fieldset>
+
+                <fieldset className="border border-slate-500 p-2.5 rounded flex items-center justify-between">
+                  <legend className="px-1 font-bold text-slate-800">Orientation</legend>
+                  <div className="flex gap-2 w-full justify-around">
+                    <button
+                      type="button"
+                      onClick={() => setRotation((r) => (r - 90 + 360) % 360)}
+                      className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 border border-slate-600 rounded font-bold cursor-pointer"
+                    >
+                      ↩ 90° बाएँ
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRotation((r) => (r + 180) % 360)}
+                      className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 border border-slate-600 rounded font-bold cursor-pointer"
+                    >
+                      ↷ 180°
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRotation((r) => (r + 90) % 360)}
+                      className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 border border-slate-600 rounded font-bold cursor-pointer"
+                    >
+                      ↪ 90° दाएँ
+                    </button>
+                  </div>
+                </fieldset>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <fieldset className="border border-slate-500 p-2 rounded">
+                    <legend className="px-1 font-bold text-slate-800">Text and Outline</legend>
+                    <div className="flex flex-col gap-1.5">
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={hasTitle}
+                          onChange={(e) => setHasTitle(e.target.checked)}
+                        />
+                        Title
+                      </label>
+                      {hasTitle && (
+                        <input
+                          type="text"
+                          value={titleText}
+                          onChange={(e) => setTitleText(e.target.value)}
+                          placeholder="नाम लिखें"
+                          className="w-full bg-white border border-slate-500 px-1.5 py-0.5 rounded text-[11px]"
+                        />
+                      )}
+
+                      <label className="flex items-center gap-1.5 cursor-pointer mt-1">
+                        <input
+                          type="checkbox"
+                          checked={hasDate}
+                          onChange={(e) => setHasDate(e.target.checked)}
+                        />
+                        Date
+                      </label>
+                      {hasDate && (
+                        <input
+                          type="text"
+                          value={dateText}
+                          onChange={(e) => setDateText(e.target.value)}
+                          placeholder="तारीख लिखें"
+                          className="w-full bg-white border border-slate-500 px-1.5 py-0.5 rounded text-[11px]"
+                        />
+                      )}
+
+                      <label className="flex items-center gap-1.5 cursor-pointer mt-1">
+                        <input
+                          type="checkbox"
+                          checked={hasOutline}
+                          onChange={(e) => setHasOutline(e.target.checked)}
+                        />
+                        Outline (1px बॉर्डर)
+                      </label>
+                    </div>
+                  </fieldset>
+
+                  <fieldset className="border border-slate-500 p-2 rounded">
+                    <legend className="px-1 font-bold text-slate-800">Color Filter</legend>
+                    <div className="flex flex-col gap-1.5">
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="colorEffect"
+                          checked={colorEffect === 'original'}
+                          onChange={() => setColorEffect('original')}
+                        />
+                        <span>Original</span>
+                      </label>
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="colorEffect"
+                          checked={colorEffect === 'bw'}
+                          onChange={() => setColorEffect('bw')}
+                        />
+                        <span>Black and White</span>
+                      </label>
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="colorEffect"
+                          checked={colorEffect === 'bright'}
+                          onChange={() => setColorEffect('bright')}
+                        />
+                        <span>Bright and Clear</span>
+                      </label>
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="colorEffect"
+                          checked={colorEffect === 'studio'}
+                          onChange={() => setColorEffect('studio')}
+                        />
+                        <span>Studio Tone</span>
+                      </label>
+                    </div>
+                  </fieldset>
+                </div>
+
+                <div className="flex justify-end gap-3 mt-2 pt-2 border-t border-slate-400">
+                  <button
+                    type="button"
+                    onClick={handleApplyOptions}
+                    className="px-6 py-2 bg-blue-700 hover:bg-blue-600 text-white font-bold rounded shadow cursor-pointer text-sm"
+                  >
+                    OK (प्रिंट शीट पर भेजें)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStep('upload')}
+                    className="px-4 py-2 bg-slate-300 hover:bg-slate-400 text-slate-800 font-semibold rounded cursor-pointer text-sm"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* मुख्य प्रिंट शीट स्क्रीन */}
+        {step === 'print-sheet' && finalPhoto && (
+          <div className="w-full max-w-7xl mx-auto px-2 sm:px-4 py-4 flex flex-col lg:grid lg:grid-cols-12 lg:gap-8 items-start">
+            {/* बायाँ भाग: प्रीव्यू (2/3) */}
+            <div className="w-full lg:col-span-8 flex flex-col items-center">
+            <div className="sticky top-[49px] z-40 w-full bg-white border border-slate-200 backdrop-blur-md pt-1 pb-2.5 px-1 border-b border-slate-800/80 shadow-2xl flex flex-col items-center">
+              <div className="flex items-center justify-between w-full px-2 mb-1.5 text-[11px]">
+                <span className="text-emerald-700 font-semibold">
+                  {activeVariant.isSingle
+                    ? '👉 सिंगल फ़ोटो लेआउट (फुल पेज)'
+                    : '👉 डिब्बे पर टैप करके फ़ोटो भरें या खाली करें'}
+                </span>
+                <span className="text-slate-600 font-mono font-medium">
+                  {slots.filter(Boolean).length} / {totalSlots} फ़ोटो
+                </span>
+              </div>
+
               <div
-                className="w-full h-full grid gap-1.5 place-content-center"
+                id="print-sheet-area"
+                className="bg-white shadow-2xl border-2 border-slate-400 transition-all rounded-xs overflow-hidden relative h-[280px] sm:h-[340px] lg:h-[580px] max-w-full"
                 style={{
-                  gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
-                  gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))`
+                  
+                  aspectRatio: currentPaper.aspect
                 }}
               >
-                {Array.from({ length: total }).map((_, idx) => {
-                  const isDisabled = disabledCells.includes(idx);
-                  return (
-                    <div
-                      key={idx}
-                      onClick={() => toggleCell(idx)}
-                      className={`relative rounded-sm flex items-center justify-center overflow-hidden cursor-pointer transition-all ${
-                        isDisabled
-                          ? 'bg-slate-100 border-dashed border border-slate-300 opacity-40'
-                          : showBorder 
-                          ? 'bg-slate-50 border-2 border-black shadow-2xs' 
-                          : 'bg-slate-50 border border-slate-300'
-                      }`}
-                      style={{
-                        aspectRatio: `${spec.photoW_mm} / ${spec.photoH_mm}`
-                      }}
-                    >
-                      <span className="absolute top-0.5 left-0.5 text-[8px] font-mono font-black bg-slate-900/70 text-white px-1 rounded z-10 pointer-events-none">
-                        #{idx + 1}
-                      </span>
+                {activeVariant.isSingle ? (
+                  <div
+                    onClick={() => toggleSlot(0)}
+                    className="w-full h-full cursor-pointer flex items-center justify-center overflow-hidden"
+                    style={{
+                      padding: isBorderless ? '0px' : '5mm'
+                    }}
+                  >
+                    {slots[0] && (
+                      <img
+                        src={slots[0]}
+                        alt="single"
+                        className="w-full h-full object-cover pointer-events-none"
+                      />
+                    )}
+                  </div>
+                ) : (
+                  Array.from({ length: activeVariant.rows }).map((_, rIdx) => {
+                    const topPercent = currentTopMarginPercent + rIdx * (currentCellHPercent + currentRowGapPercent);
 
-                      {imageSrc && !isDisabled ? (
+                    return Array.from({ length: activeVariant.cols }).map((_, cIdx) => {
+                      const leftPercent = currentLeftMarginPercent + cIdx * (currentCellWPercent + currentColGapPercent);
+                      const idx = rIdx * activeVariant.cols + cIdx;
+                      const img = slots[idx];
+
+                      return (
                         <div
-                          className="w-full h-full flex items-center justify-center overflow-hidden pointer-events-none"
+                          key={`${rIdx}-${cIdx}`}
+                          onClick={() => toggleSlot(idx)}
                           style={{
-                            transform: `rotate(${photoRotation}deg)`,
-                            transition: 'transform 0.15s ease'
+                            position: 'absolute',
+                            top: `${topPercent}%`,
+                            left: `${leftPercent}%`,
+                            width: `${currentCellWPercent}%`,
+                            height: `${currentCellHPercent}%`
                           }}
+                          className={`flex items-center justify-center cursor-pointer overflow-hidden transition-all ${
+                            !img
+                              ? 'border border-dashed border-slate-400 bg-slate-50 hover:bg-blue-50'
+                              : 'border border-slate-200 bg-slate-100 shadow-2xs'
+                          }`}
                         >
-                          <img
-                            src={imageSrc}
-                            alt="Cell Photo"
-                            className={`w-full h-full ${fitTheCell ? 'object-contain' : 'object-cover'}`}
-                            style={{
-                              filter: `brightness(${brightness}%) contrast(${contrast}%)`
-                            }}
-                          />
+                          {img ? (
+                            <img
+                              src={img}
+                              alt="slot"
+                              className="w-full h-full object-cover pointer-events-none"
+                            />
+                          ) : (
+                            <span className="text-[9px] font-bold text-slate-600 font-mono font-medium">
+                              {idx + 1}
+                            </span>
+                          )}
                         </div>
-                      ) : (
-                        <span className="text-slate-300 text-xs font-bold">
-                          {isDisabled ? 'खाली' : '+'}
-                        </span>
-                      )}
-                    </div>
-                  );
-                })}
+                      );
+                    });
+                  })
+                )}
               </div>
 
-            </div>
-          </div>
-
-        </div>
-
-        {/* दायाँ भाग: साइडबार */}
-        <div className="w-full lg:w-80 bg-white rounded-2xl border-2 border-slate-900 shadow-xs p-3 flex flex-col justify-between overflow-y-auto shrink-0 space-y-2.5">
-          
-          <div className="space-y-2.5">
-            
-            {/* 1. फोटो चुनें */}
-            <input
-              type="file"
-              ref={fileInputRef}
-              accept="image/*"
-              onChange={(e) => handleFileUpload(e.target.files?.[0])}
-              className="hidden"
-            />
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="w-full py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 border-2 border-blue-200 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs transition-all active:scale-98"
-            >
-              <span>📷</span>
-              <span>{imageSrc ? 'दूसरी फोटो बदलें' : 'कंप्यूटर / गैलरी से फोटो चुनें'}</span>
-            </button>
-
-            {/* 2. पेपर का साइज़ */}
-            <div className="bg-slate-50 p-2 rounded-xl border border-slate-200 space-y-1">
-              <span className="text-[10px] font-black text-slate-700 uppercase tracking-wider block">
-                कागज़ का साइज़
-              </span>
-              <div className="grid grid-cols-2 gap-1.5">
-                <button
-                  onClick={() => { setPaperType('4x6'); handle4x6CountChange(8); }}
-                  className={`py-1.5 text-xs font-black rounded-lg transition-all cursor-pointer ${
-                    paperType === '4x6' 
-                      ? 'bg-slate-900 text-white shadow-xs' 
-                      : 'bg-white text-slate-700 border border-slate-300 hover:bg-slate-100'
-                  }`}
-                >
-                  4×6 फोटो पेपर
-                </button>
-                <button
-                  onClick={() => { setPaperType('a4'); handleA4CountChange(30); }}
-                  className={`py-1.5 text-xs font-black rounded-lg transition-all cursor-pointer ${
-                    paperType === 'a4' 
-                      ? 'bg-slate-900 text-white shadow-xs' 
-                      : 'bg-white text-slate-700 border border-slate-300 hover:bg-slate-100'
-                  }`}
-                >
-                  A4 बड़ा पेपर
-                </button>
-              </div>
-            </div>
-
-            {/* 3. फोटो संख्या */}
-            <div className="bg-slate-50 p-2 rounded-xl border border-slate-200 space-y-1">
-              <span className="text-[10px] font-black text-slate-700 uppercase tracking-wider block">
-                शीट पर संख्या
-              </span>
-              
-              {paperType === '4x6' ? (
-                <div className="grid grid-cols-4 gap-1">
-                  {([1, 8, 9, 12] as LayoutCount4x6[]).map((cnt) => (
-                    <button
-                      key={cnt}
-                      onClick={() => handle4x6CountChange(cnt)}
-                      className={`py-1.5 text-xs font-black rounded-lg transition-all cursor-pointer ${
-                        count4x6 === cnt 
-                          ? 'bg-blue-600 text-white shadow-xs' 
-                          : 'bg-white text-slate-700 border border-slate-300 hover:bg-slate-100'
-                      }`}
-                    >
-                      {cnt}
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <div className="grid grid-cols-5 gap-1">
-                  {([1, 10, 24, 30, 36] as LayoutCountA4[]).map((cnt) => (
-                    <button
-                      key={cnt}
-                      onClick={() => handleA4CountChange(cnt)}
-                      className={`py-1.5 text-xs font-black rounded-lg transition-all cursor-pointer ${
-                        countA4 === cnt 
-                          ? 'bg-blue-600 text-white shadow-xs' 
-                          : 'bg-white text-slate-700 border border-slate-300 hover:bg-slate-100'
-                      }`}
-                    >
-                      {cnt}
-                    </button>
-                  ))}
+              {!activeVariant.isSingle && remainingBottomMm > 0.5 && (
+                <div className="text-[10px] text-slate-600 mt-1 font-mono font-medium">
+                  नीचे कटिंग के लिए खाली पेपर: {remainingBottomMm.toFixed(1)} mm
                 </div>
               )}
             </div>
 
-            {/* 4. दिशा (पोर्ट्रेट/लैंडस्केप) + रोटेट (↺ ↻) */}
-            <div className="bg-slate-50 p-2 rounded-xl border border-slate-200 space-y-1">
-              <span className="text-[10px] font-black text-slate-700 uppercase tracking-wider block">
-                दिशा व रोटेट
-              </span>
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => setOrientation('portrait')}
-                  className={`flex-1 py-1.5 text-xs font-black rounded-lg cursor-pointer transition-all ${
-                    orientation === 'portrait' 
-                      ? 'bg-slate-900 text-white shadow-xs' 
-                      : 'bg-white text-slate-700 border border-slate-300'
-                  }`}
-                >
-                  पोर्ट्रेट
-                </button>
-                <button
-                  onClick={() => setOrientation('landscape')}
-                  className={`flex-1 py-1.5 text-xs font-black rounded-lg cursor-pointer transition-all ${
-                    orientation === 'landscape' 
-                      ? 'bg-slate-900 text-white shadow-xs' 
-                      : 'bg-white text-slate-700 border border-slate-300'
-                  }`}
-                >
-                  लैंडस्केप
-                </button>
-
-                <button
-                  onClick={rotateLeft}
-                  title="90° बाएँ घुमाएँ"
-                  className="w-8 h-7.5 bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 rounded-lg text-sm font-black flex items-center justify-center cursor-pointer transition-all active:scale-95 shadow-2xs shrink-0"
-                >
-                  ↺
-                </button>
-                <button
-                  onClick={rotateRight}
-                  title="90° दाएँ घुमाएँ"
-                  className="w-8 h-7.5 bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 rounded-lg text-sm font-black flex items-center justify-center cursor-pointer transition-all active:scale-95 shadow-2xs shrink-0"
-                >
-                  ↻
-                </button>
-              </div>
+            {/* बॉटम कंट्रोल सेक्शन */}
             </div>
 
-            {/* 5. टोन, कटिंग बॉर्डर व Fit the Cell */}
-            <div className="bg-slate-50 p-2 rounded-xl border border-slate-200 space-y-1.5">
-              <div className="flex justify-between text-[10px] font-black text-slate-700">
-                <span>ब्राइटनेस</span>
-                <span className="text-blue-700">{brightness}%</span>
+            {/* दायाँ भाग: टूल्स और सेटिंग्स (1/3) */}
+            <div className="w-full lg:col-span-4 lg:sticky lg:top-20 bg-white border-2 border-slate-300 rounded-2xl p-4 shadow-md text-slate-800 flex flex-col gap-3 mt-4 lg:mt-0">
+              {activeVariant.isSingle && (
+                <div className="p-2.5 bg-blue-50 border border-blue-200 rounded-xl flex items-center justify-between">
+                  <div className="flex flex-col">
+                    <span className="text-xs font-bold text-blue-900">🔲 फुल 4×6 बॉर्डरलेस फिट</span>
+                    <span className="text-[10px] text-blue-600">बिना सफ़ेद किनारी के पूरे पेपर पर फ़िट करें</span>
+                  </div>
+                  <button
+                    onClick={() => setIsBorderless(!isBorderless)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition shadow-xs cursor-pointer ${
+                      isBorderless
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-white text-blue-700 border border-blue-300'
+                    }`}
+                  >
+                    {isBorderless ? '✓ बॉर्डरलेस चालू' : 'बॉर्डरलेस करें'}
+                  </button>
+                </div>
+              )}
+              <div>
+                <span className="text-[11px] font-bold text-slate-700 block mb-1.5">
+                  1. पेपर साइज़:
+                </span>
+                <div className="grid grid-cols-3 gap-2">
+                  {(['4x6', '5x7', 'a4'] as PaperCategory[]).map((cat) => (
+                    <button
+                      key={cat}
+                      onClick={() => handleCategoryChange(cat)}
+                      className={`py-2 px-1 rounded-xl text-xs font-bold transition flex items-center justify-center cursor-pointer ${
+                        paperCat === cat
+                          ? 'bg-blue-600 text-white shadow-md ring-2 ring-blue-400/30'
+                          : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-400'
+                      }`}
+                    >
+                      {paperConfig[cat].title}
+                    </button>
+                  ))}
+                </div>
               </div>
-              <input
-                type="range"
-                min="80"
-                max="130"
-                value={brightness}
-                onChange={(e) => setBrightness(Number(e.target.value))}
-                className="w-full accent-blue-600 h-1.5 bg-slate-200 rounded cursor-pointer"
-              />
 
-              <div className="flex justify-between text-[10px] font-black text-slate-700 pt-0.5">
-                <span>कंट्रास्ट</span>
-                <span className="text-blue-700">{contrast}%</span>
+              <div>
+                <span className="text-[11px] font-bold text-slate-700 block mb-1.5">
+                  2. {currentPaper.title} में लेआउट:
+                </span>
+                <div
+                  className="grid gap-1.5"
+                  style={{
+                    gridTemplateColumns: `repeat(${Math.min(currentPaper.variants.length, 4)}, minmax(0, 1fr))`
+                  }}
+                >
+                  {currentPaper.variants.map((v) => (
+                    <button
+                      key={v.id}
+                      onClick={() => handleVariantChange(v)}
+                      className={`py-2 px-1 rounded-xl text-center transition flex flex-col items-center justify-center cursor-pointer active:scale-95 ${
+                        activeVariantId === v.id
+                          ? 'bg-emerald-600 text-white shadow-md ring-2 ring-emerald-400/40'
+                          : 'bg-slate-800 text-slate-300 hover:text-white border border-slate-700/60'
+                      }`}
+                    >
+                      <span className="text-[11px] font-bold leading-tight truncate w-full px-1">{v.name}</span>
+                      <span className="text-[9px] opacity-80 mt-0.5 leading-tight truncate w-full px-1">{v.subText}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
-              <input
-                type="range"
-                min="80"
-                max="130"
-                value={contrast}
-                onChange={(e) => setContrast(Number(e.target.value))}
-                className="w-full accent-blue-600 h-1.5 bg-slate-200 rounded cursor-pointer"
-              />
 
-              <div className="pt-1 border-t border-slate-200 flex items-center justify-between">
-                <label className="flex items-center gap-1.5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={fitTheCell}
-                    onChange={(e) => setFitTheCell(e.target.checked)}
-                    className="w-3.5 h-3.5 accent-blue-600 cursor-pointer"
-                  />
-                  <span className="text-[11px] font-black text-blue-900">
-                    Fit the Cell (सेल में फिट)
-                  </span>
-                </label>
+              {activeVariant.isSingle && (
+                <div className="p-2 bg-slate-800/80 rounded-xl border border-slate-700 flex items-center justify-between">
+                  <div>
+                    <span className="text-xs font-bold block text-white">बॉर्डर स्टाइल</span>
+                    <span className="text-[10px] text-slate-400">
+                      {isBorderless ? 'फुल पेपर (बॉर्डरलेस प्रिंट)' : 'चारों तरफ 5mm सफ़ेद बॉर्डर'}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => setIsBorderless(!isBorderless)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition ${
+                      isBorderless
+                        ? 'bg-amber-600 text-white'
+                        : 'bg-slate-700 text-slate-200 border border-slate-600'
+                    }`}
+                  >
+                    {isBorderless ? 'बॉर्डरलेस' : 'विद बॉर्डर'}
+                  </button>
+                </div>
+              )}
 
-                <label className="flex items-center gap-1.5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={showBorder}
-                    onChange={(e) => setShowBorder(e.target.checked)}
-                    className="w-3.5 h-3.5 accent-black cursor-pointer"
-                  />
-                  <span className="text-[11px] font-black text-slate-900">
-                    काली बॉर्डर
-                  </span>
-                </label>
+              <div className="pt-1.5 border-t border-slate-200 flex items-center justify-between">
+                <button
+                  onClick={() => setSlots(Array(totalSlots).fill(finalPhoto))}
+                  className="text-xs bg-white hover:bg-slate-100 text-slate-900 px-3 py-1.5 rounded-lg border-2 border-slate-800 cursor-pointer font-bold shadow-xs"
+                >
+                  ▦ पूरी शीट भरें ({totalSlots})
+                </button>
+                <button
+                  onClick={() => setSlots(Array(totalSlots).fill(null))}
+                  className="text-xs bg-white hover:bg-red-50 text-red-600 px-3 py-1.5 rounded-lg border-2 border-red-500 cursor-pointer font-bold shadow-xs"
+                >
+                  🗑️ खाली करें
+                </button>
               </div>
-            </div>
-
-          </div>
-
-          {/* 6. डाउनलोड सेक्शन: 3 बटन (JPG | PDF | प्रिंट) */}
-          <div className="pt-1.5 border-t border-slate-200 space-y-1">
-            <div className="grid grid-cols-3 gap-1.5">
-              <button
-                onClick={() => handleDownload('jpg')}
-                disabled={!imageSrc || isProcessing}
-                className={`py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-xl shadow-md cursor-pointer flex items-center justify-center gap-1 transition-all active:scale-98 ${
-                  !imageSrc || isProcessing ? 'opacity-50 cursor-not-allowed' : ''
-                }`}
-              >
-                <span>🖼️</span>
-                <span>JPG</span>
-              </button>
 
               <button
-                onClick={() => handleDownload('pdf')}
-                disabled={!imageSrc || isProcessing}
-                className={`py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-black text-xs rounded-xl shadow-md cursor-pointer flex items-center justify-center gap-1 transition-all active:scale-98 ${
-                  !imageSrc || isProcessing ? 'opacity-50 cursor-not-allowed' : ''
-                }`}
+                onClick={openCustomModal}
+                className="w-full py-2.5 bg-gradient-to-r from-indigo-600 via-blue-600 to-indigo-600 hover:from-indigo-500 hover:to-blue-500 text-white font-bold text-xs rounded-xl shadow-lg border border-indigo-400/30 flex items-center justify-center gap-1.5 cursor-pointer active:scale-98 transition"
               >
-                <span>📄</span>
-                <span>PDF</span>
-              </button>
-
-              <button
-                onClick={handlePrint}
-                disabled={!imageSrc || isProcessing}
-                className={`py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-black text-xs rounded-xl shadow-md cursor-pointer flex items-center justify-center gap-1 transition-all active:scale-98 ${
-                  !imageSrc || isProcessing ? 'opacity-50 cursor-not-allowed' : ''
-                }`}
-              >
-                <span>🖨️</span>
-                <span>प्रिंट</span>
+                <span>✨</span>
+                <span>मनपसंद साइज़ बनाएं (कस्टम कैटलॉग)</span>
               </button>
             </div>
           </div>
+        )}
 
-        </div>
+        {/* 4. Presto! PrintFun Catalog स्टाइल कस्टम लेआउट मोडल (Delete बटन सहित) */}
+        {showCatalogModal && (
+          <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
+            <div className="w-full max-w-2xl bg-[#c0c0c0] text-black border-2 border-[#dfdfdf] shadow-2xl rounded p-3 font-sans">
+              <div className="text-xs font-bold text-slate-800 mb-2 border-b border-slate-400 pb-1 flex justify-between items-center">
+                <span>ExamSewa - PrintFun</span>
+                <button
+                  onClick={() => setShowCatalogModal(false)}
+                  className="text-red-700 font-bold hover:underline cursor-pointer text-xs"
+                >
+                  ✕ बंद करें
+                </button>
+              </div>
 
+              <div className="flex gap-2 items-end mb-2.5">
+                <div className="w-2/3">
+                  <label className="font-bold text-slate-800 block text-[11px] mb-0.5">Style Name:</label>
+                  <input
+                    type="text"
+                    value={custStyleName}
+                    onChange={(e) => setCustStyleName(e.target.value)}
+                    className="w-full bg-white border border-slate-500 px-2 py-1 rounded text-xs font-semibold"
+                    placeholder="स्टाइल का नाम लिखें"
+                  />
+                </div>
+
+                <div className="w-1/3">
+                  <fieldset className="border border-slate-500 px-2 py-0.5 rounded bg-slate-200/60">
+                    <legend className="px-1 font-bold text-[10px] text-slate-800">Unit (इकाई)</legend>
+                    <div className="flex items-center justify-around gap-2 h-7">
+                      <label className="flex items-center gap-1 cursor-pointer text-xs font-bold">
+                        <input
+                          type="radio"
+                          name="custUnit"
+                          checked={custUnit === 'mm'}
+                          onChange={() => handleUnitSwitch('mm')}
+                          className="w-3.5 h-3.5 cursor-pointer"
+                        />
+                        <span>mm</span>
+                      </label>
+                      <label className="flex items-center gap-1 cursor-pointer text-xs font-bold">
+                        <input
+                          type="radio"
+                          name="custUnit"
+                          checked={custUnit === 'cm'}
+                          onChange={() => handleUnitSwitch('cm')}
+                          className="w-3.5 h-3.5 cursor-pointer"
+                        />
+                        <span>cm</span>
+                      </label>
+                    </div>
+                  </fieldset>
+                </div>
+              </div>
+
+              <div className="flex flex-col md:flex-row gap-3">
+                <div className="flex-1 bg-[#0b6623] p-3 rounded flex flex-col items-center justify-center min-h-[300px] shadow-inner relative overflow-hidden">
+                  <div
+                    className="bg-white shadow-2xl relative transition-all overflow-hidden border border-slate-400"
+                    style={{
+                      width: '180px',
+                      height: `${(previewPaperH / previewPaperW) * 180}px`,
+                      maxHeight: '270px'
+                    }}
+                  >
+                    {Array.from({ length: previewRows }).map((_, rIdx) => {
+                      const topPercent = ((previewTopMargin + rIdx * (previewCellH + previewRowGap)) / previewPaperH) * 100;
+                      const heightPercent = (previewCellH / previewPaperH) * 100;
+
+                      return Array.from({ length: previewCols }).map((_, cIdx) => {
+                        const leftPercent = ((previewLeftMargin + cIdx * (previewCellW + previewColGap)) / previewPaperW) * 100;
+                        const widthPercent = (previewCellW / previewPaperW) * 100;
+
+                        const isCellOverflow =
+                          leftPercent + widthPercent > 100.2 || topPercent + heightPercent > 100.2;
+
+                        return (
+                          <div
+                            key={`${rIdx}-${cIdx}`}
+                            style={{
+                              position: 'absolute',
+                              top: `${topPercent}%`,
+                              left: `${leftPercent}%`,
+                              width: `${widthPercent}%`,
+                              height: `${heightPercent}%`
+                            }}
+                            className={`flex items-center justify-center text-[7px] font-mono transition-all ${
+                              isCellOverflow
+                                ? 'bg-red-500/80 border-2 border-red-700 text-white font-bold animate-pulse'
+                                : 'bg-slate-50 border border-slate-400 text-slate-600'
+                            }`}
+                          >
+                            {rIdx * previewCols + cIdx + 1}
+                          </div>
+                        );
+                      });
+                    })}
+                  </div>
+
+                  <div className="mt-2 text-center w-full">
+                    {isAnyOverflow ? (
+                      <span className="bg-red-600 text-white text-[10px] font-bold px-2 py-0.5 rounded shadow">
+                        ⚠️ फ़ोटो पेपर साइज़ से बाहर निकल रही है!
+                      </span>
+                    ) : (
+                      <span className="text-white/90 text-[10px] font-medium bg-black/40 px-2 py-0.5 rounded">
+                        नीचे बचा पेपर: {(previewPaperH - totalUsedHeight).toFixed(1)} mm
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="w-full md:w-72 flex flex-col gap-2 text-xs">
+                  <fieldset className="border border-slate-500 p-2 rounded bg-slate-200/60">
+                    <legend className="px-1 font-bold text-[11px] text-slate-800">Paper (कागज़)</legend>
+                    <div className="flex gap-2 mb-1.5">
+                      {(['4x6', '5x7', 'a4'] as PaperCategory[]).map((cat) => (
+                        <button
+                          key={cat}
+                          type="button"
+                          onClick={() => {
+                            setCustPaperType(cat);
+                          }}
+                          className={`flex-1 py-1 text-[10px] font-bold rounded cursor-pointer ${
+                            custPaperType === cat ? 'bg-blue-700 text-white' : 'bg-slate-300 text-black'
+                          }`}
+                        >
+                          {paperConfig[cat].title}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-[11px]">
+                      <div>
+                        <span>Top Margin:</span>
+                        <div className="flex items-center gap-1 mt-0.5">
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={custTopMarginStr}
+                            onChange={(e) => setCustTopMarginStr(e.target.value)}
+                            className="w-full bg-white border border-slate-500 px-1 py-0.5 rounded text-xs"
+                          />
+                          <span className="text-[10px] font-bold">{custUnit}</span>
+                        </div>
+                      </div>
+                      <div>
+                        <span>Left Margin:</span>
+                        <div className="flex items-center gap-1 mt-0.5">
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={custLeftMarginStr}
+                            onChange={(e) => setCustLeftMarginStr(e.target.value)}
+                            className="w-full bg-white border border-slate-500 px-1 py-0.5 rounded text-xs"
+                          />
+                          <span className="text-[10px] font-bold">{custUnit}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </fieldset>
+
+                  <fieldset className="border border-slate-500 p-2 rounded bg-slate-200/60">
+                    <legend className="px-1 font-bold text-[11px] text-slate-800">Layout (कॉलम व रो)</legend>
+                    <div className="grid grid-cols-2 gap-2 text-[11px]">
+                      <div>
+                        <span>Total Row:</span>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={custRowsStr}
+                          onChange={(e) => setCustRowsStr(e.target.value)}
+                          placeholder="रो"
+                          className="w-full bg-white border border-slate-500 px-1 py-0.5 rounded text-xs mt-0.5 font-bold"
+                        />
+                      </div>
+                      <div>
+                        <span>Total Column:</span>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={custColsStr}
+                          onChange={(e) => setCustColsStr(e.target.value)}
+                          placeholder="कॉलम"
+                          className="w-full bg-white border border-slate-500 px-1 py-0.5 rounded text-xs mt-0.5 font-bold"
+                        />
+                      </div>
+                      <div>
+                        <span>Row Gap:</span>
+                        <div className="flex items-center gap-1 mt-0.5">
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={custRowGapStr}
+                            onChange={(e) => setCustRowGapStr(e.target.value)}
+                            className="w-full bg-white border border-slate-500 px-1 py-0.5 rounded text-xs"
+                          />
+                          <span className="text-[10px] font-bold">{custUnit}</span>
+                        </div>
+                      </div>
+                      <div>
+                        <span>Column Gap:</span>
+                        <div className="flex items-center gap-1 mt-0.5">
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={custColGapStr}
+                            onChange={(e) => setCustColGapStr(e.target.value)}
+                            className="w-full bg-white border border-slate-500 px-1 py-0.5 rounded text-xs"
+                          />
+                          <span className="text-[10px] font-bold">{custUnit}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </fieldset>
+
+                  <fieldset className="border border-slate-500 p-2 rounded bg-slate-200/60">
+                    <legend className="px-1 font-bold text-[11px] text-slate-800">Cell (फ़ोटो साइज़)</legend>
+                    <div className="grid grid-cols-2 gap-2 text-[11px]">
+                      <div>
+                        <span>Cell Width:</span>
+                        <div className="flex items-center gap-1 mt-0.5">
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={custCellWStr}
+                            onChange={(e) => setCustCellWStr(e.target.value)}
+                            className="w-full bg-white border border-slate-500 px-1 py-0.5 rounded text-xs"
+                          />
+                          <span className="text-[10px] font-bold">{custUnit}</span>
+                        </div>
+                      </div>
+                      <div>
+                        <span>Cell Height:</span>
+                        <div className="flex items-center gap-1 mt-0.5">
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={custCellHStr}
+                            onChange={(e) => setCustCellHStr(e.target.value)}
+                            className="w-full bg-white border border-slate-500 px-1 py-0.5 rounded text-xs"
+                          />
+                          <span className="text-[10px] font-bold">{custUnit}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </fieldset>
+
+                  {/* एक्शन्स: Delete, Cancel, Save */}
+                  <div className="flex items-center justify-between pt-1 border-t border-slate-400 mt-1">
+                    {/* Delete बटन: केवल कस्टम लेआउट होने पर सक्रिय होगा */}
+                    <button
+                      type="button"
+                      disabled={!activeVariant.isCustom}
+                      onClick={handleDeleteCurrentCustom}
+                      title={activeVariant.isCustom ? "इस कस्टम लेआउट को हमेशा के लिए हटाएं" : "डिफ़ॉल्ट सिस्टम लेआउट डिलीट नहीं किए जा सकते"}
+                      className={`px-3 py-1.5 rounded font-bold text-xs transition ${
+                        activeVariant.isCustom
+                          ? 'bg-red-700 hover:bg-red-800 text-white cursor-pointer active:scale-95'
+                          : 'bg-slate-300 text-slate-400 border border-slate-300 cursor-not-allowed'
+                      }`}
+                    >
+                      Delete (हटाएं)
+                    </button>
+
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setShowCatalogModal(false)}
+                        className="px-3 py-1.5 bg-slate-300 hover:bg-slate-400 text-slate-800 font-semibold rounded cursor-pointer text-xs"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isAnyOverflow}
+                        onClick={handleSaveCustomLayout}
+                        className={`px-4 py-1.5 font-bold rounded shadow text-xs transition ${
+                          isAnyOverflow
+                            ? 'bg-slate-400 text-slate-200 cursor-not-allowed'
+                            : 'bg-blue-700 hover:bg-blue-600 text-white cursor-pointer active:scale-95'
+                        }`}
+                      >
+                        Save & OK (जोड़ें)
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
+
+            
     </div>
   );
 }

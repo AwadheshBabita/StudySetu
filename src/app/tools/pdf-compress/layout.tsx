@@ -11,7 +11,11 @@ export const metadata: Metadata = {
     "govt exam pdf compressor online",
     "sarkari form pdf reducer",
     "compress pdf without losing text quality",
-    "fast pdf size reducer free"
+    "fast pdf size reducer free",
+    "pdf ka size kam kaise kare",
+    "marksheet pdf 200kb me kaise banaye",
+    "pdf 100kb compressor for sarkari form",
+    "mobile se pdf compress kaise kare",
   ],
   alternates: {
     canonical: "https://examsewa.online/tools/pdf-compress",

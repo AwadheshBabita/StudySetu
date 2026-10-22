@@ -11,7 +11,7 @@ export const metadata: Metadata = {
     "pdf par password lock kaise lagaye",
     "private document protector tool",
     "client side safe pdf lock",
-    "free pdf protection tool"
+    "free pdf protection tool",
   ],
   alternates: {
     canonical: "https://examsewa.online/tools/pdf-protect",

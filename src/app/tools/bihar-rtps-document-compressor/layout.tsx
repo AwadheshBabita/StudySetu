@@ -9,7 +9,7 @@ export const metadata: Metadata = {
     "RTPS bihar document upload error size reducer",
     "up scholarship certificate compress 100kb online",
     "marksheet certificate resize 100kb free",
-    "online form document 50kb to 100kb jpg pdf"
+    "online form document 50kb to 100kb jpg pdf",
   ],
   alternates: {
     canonical: "https://examsewa.online/tools/bihar-rtps-document-compressor",

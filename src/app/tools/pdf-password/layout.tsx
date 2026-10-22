@@ -11,7 +11,7 @@ export const metadata: Metadata = {
     "secure marksheet pdf with password",
     "protect aadhaar pan pdf file",
     "client side pdf encryption tool",
-    "free pdf locker online"
+    "free pdf locker online",
   ],
   alternates: {
     canonical: "https://examsewa.online/tools/pdf-password",

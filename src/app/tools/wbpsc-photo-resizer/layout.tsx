@@ -11,7 +11,7 @@ export const metadata: Metadata = {
     "west bengal psc online application photo crop",
     "wbpsc clerkship photo resizer free",
     "wbpsc signature 140x60 px crop",
-    "wbpsc photo editor online"
+    "wbpsc photo editor online",
   ],
   alternates: {
     canonical: "https://examsewa.online/tools/wbpsc-photo-resizer",

@@ -11,7 +11,7 @@ export const metadata: Metadata = {
     "join pdf pages online free",
     "combine scanned documents for govt exam",
     "reorder and merge pdf online",
-    "fast pdf combiner tool"
+    "fast pdf combiner tool",
   ],
   alternates: {
     canonical: "https://examsewa.online/tools/pdf-merge",

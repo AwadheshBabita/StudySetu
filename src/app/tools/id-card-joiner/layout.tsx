@@ -11,7 +11,11 @@ export const metadata: Metadata = {
     "how to join two sides of voter id",
     "combine front and back id card online",
     "aadhar print setter a4 sheet",
-    "csc id card printing tool"
+    "csc id card printing tool",
+    "aadhar card a4 print setter",
+    "pan card both sides print a4 online",
+    "id card dono side a4 par kaise nikale",
+    "voter id front back print",
   ],
   alternates: {
     canonical: "https://examsewa.online/tools/id-card-joiner",
