@@ -6,7 +6,7 @@ export default function AIPassportTest() {
   const [originalImage, setOriginalImage] = useState<string | null>(null);
   const [processedImage, setProcessedImage] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
-  const [bgColor, setBgColor] = useState<string>('#ffffff');
+  const [bgColor, setBgColor] = useState<string>('#1d4ed8');
   const [statusText, setStatusText] = useState<string>('');
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -15,11 +15,11 @@ export default function AIPassportTest() {
       const url = URL.createObjectURL(file);
       setOriginalImage(url);
       setProcessedImage(null);
-      setStatusText('फोटो लोड हो गई। "AI कटिंग (फास्ट)" पर क्लिक करें।');
+      setStatusText('फ़ोटो अपलोड हो गई। "सटीक AI कटिंग" पर क्लिक करें।');
     }
   };
 
-  // भारी फोटो को AI के लिए ऑप्टिमाइज करने वाला हेल्पर
+  // 1. प्रोसेसिंग स्पीड के लिए इमेज स्केल
   const optimizeImage = (srcUrl: string): Promise<Blob> => {
     return new Promise((resolve, reject) => {
       const img = new Image();
@@ -48,7 +48,7 @@ export default function AIPassportTest() {
         ctx.drawImage(img, 0, 0, w, h);
         canvas.toBlob((blob) => {
           if (blob) resolve(blob);
-          else reject('Blob conversion failed');
+          else reject('Blob error');
         }, 'image/jpeg', 0.95);
       };
       img.onerror = reject;
@@ -56,32 +56,35 @@ export default function AIPassportTest() {
     });
   };
 
-  // बालों के किनारों से सफेद जाला (Fringe) हटाने वाला फिल्टर
-  const cleanEdges = (blob: Blob): Promise<string> => {
+  // 2. बालों से सफेद जाला / धुंध हटाने वाला स्टूडियो-ग्रेड फिल्टर (Alpha Choke & Edge Darkening)
+  const cleanFringeAndWebbing = (blob: Blob): Promise<string> => {
     return new Promise((resolve) => {
       const img = new Image();
       img.onload = () => {
+        const w = img.width;
+        const h = img.height;
         const canvas = document.createElement('canvas');
-        canvas.width = img.width;
-        canvas.height = img.height;
-        const ctx = canvas.getContext('2d');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
         if (!ctx) return resolve(URL.createObjectURL(blob));
 
         ctx.drawImage(img, 0, 0);
-        const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const imgData = ctx.getImageData(0, 0, w, h);
         const data = imgData.data;
 
-        // सेमी-ट्रांसपेरेंट पिक्सल्स की सफाई
+        // स्टेप A: अल्फा थ्रेशोल्ड (हल्के पारदर्शी जाले को सीधे मिटाना)
         for (let i = 0; i < data.length; i += 4) {
-          const alpha = data[i + 3];
-          if (alpha < 40) {
-            data[i + 3] = 0;
-          } else if (alpha < 220) {
-            // किनारे के सफेद पिक्सल को खत्म करके डार्क करना
-            data[i] = Math.min(data[i], data[i] * (alpha / 255));
-            data[i + 1] = Math.min(data[i + 1], data[i + 1] * (alpha / 255));
-            data[i + 2] = Math.min(data[i + 2], data[i + 2] * (alpha / 255));
-            data[i + 3] = Math.min(255, alpha * 1.25);
+          const a = data[i + 3];
+          if (a < 110) {
+            data[i + 3] = 0; // हल्का धुंधला जाला पूरी तरह खत्म
+          } else if (a < 210) {
+            // बालों के किनारों पर बची सफेद चमक को बालों के रंग (डार्क) में बदलना
+            const factor = (a - 110) / 100;
+            data[i] = Math.round(data[i] * factor);
+            data[i + 1] = Math.round(data[i + 1] * factor);
+            data[i + 2] = Math.round(data[i + 2] * factor);
+            data[i + 3] = Math.min(255, Math.round(a * 1.3));
           }
         }
 
@@ -97,24 +100,23 @@ export default function AIPassportTest() {
 
     try {
       setLoading(true);
-      setStatusText('फोटो ऑप्टिमाइज़ हो रही है और AI कटिंग चालू है...');
+      setStatusText('AI कटिंग चालू है...');
 
       const optimizedBlob = await optimizeImage(originalImage);
 
       const { removeBackground } = await import('@imgly/background-removal');
       const resultBlob = await removeBackground(optimizedBlob, {
-        model: 'medium', // तेज और सटीक कटिंग
         output: {
           format: 'image/png',
           quality: 0.95
         }
       });
 
-      setStatusText('किनारों और बालों की फिनिशिंग हो रही है...');
-      const cleanedUrl = await cleanEdges(resultBlob);
+      setStatusText('बालों के किनारों से जाला व सफेद चमक साफ़ की जा रही है...');
+      const cleanedUrl = await cleanFringeAndWebbing(resultBlob);
 
       setProcessedImage(cleanedUrl);
-      setStatusText('कटिंग पूरी! अब अपनी पसंद का रंग चुनें।');
+      setStatusText('कटिंग पूरी! अब रंग चुनकर देखें।');
     } catch (error) {
       console.error(error);
       setStatusText('एरर आया। कृपया दोबारा प्रयास करें।');
@@ -124,15 +126,15 @@ export default function AIPassportTest() {
   };
 
   return (
-    <div style={{ maxWidth: '540px', margin: '20px auto', padding: '16px', fontFamily: 'sans-serif' }}>
+    <div style={{ maxWidth: '520px', margin: '20px auto', padding: '16px', fontFamily: 'sans-serif' }}>
       <h3 style={{ textAlign: 'center', color: '#1e3a8a', marginBottom: '4px' }}>
-        AI पासपोर्ट बैकग्राउंड कटिंग (v2 - फास्ट)
+        AI पासपोर्ट फ़ोटो - क्लीन एज वर्शन
       </h3>
       <p style={{ textAlign: 'center', fontSize: '13px', color: '#666', marginBottom: '16px' }}>
-        ऑप्टिमाइज़्ड स्पीड + बालों की शार्प कटिंग
+        बालों के किनारों से सफेद जाला हटाने वाला ऑटो-फ़िल्टर सक्रिय
       </p>
 
-      <div style={{ border: '2px dashed #93c5fd', borderRadius: '10px', padding: '18px', textAlign: 'center', background: '#eff6ff' }}>
+      <div style={{ border: '2px dashed #93c5fd', borderRadius: '10px', padding: '16px', textAlign: 'center', background: '#eff6ff' }}>
         <input
           type="file"
           accept="image/*"
@@ -144,7 +146,7 @@ export default function AIPassportTest() {
           htmlFor="photo-input"
           style={{ display: 'inline-block', padding: '10px 18px', background: '#2563eb', color: '#fff', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px' }}
         >
-          फोटो बदलें / चुनें
+          फ़ोटो चुनें
         </label>
       </div>
 
@@ -159,14 +161,14 @@ export default function AIPassportTest() {
           <img
             src={originalImage}
             alt="Original"
-            style={{ maxWidth: '180px', maxHeight: '220px', borderRadius: '6px', objectFit: 'cover' }}
+            style={{ maxWidth: '170px', maxHeight: '210px', borderRadius: '6px', objectFit: 'cover' }}
           />
           <div style={{ marginTop: '12px' }}>
             <button
               onClick={removeBackgroundAI}
               disabled={loading}
               style={{
-                padding: '10px 20px',
+                padding: '10px 22px',
                 background: loading ? '#9ca3af' : '#10b981',
                 color: '#fff',
                 border: 'none',
@@ -175,7 +177,7 @@ export default function AIPassportTest() {
                 cursor: loading ? 'not-allowed' : 'pointer'
               }}
             >
-              {loading ? 'प्रोसेसिंग चालू है...' : 'AI कटिंग (फास्ट)'}
+              {loading ? 'सफ़ाई चालू है...' : 'सटीक AI कटिंग करें'}
             </button>
           </div>
         </div>
@@ -186,9 +188,9 @@ export default function AIPassportTest() {
           <h4 style={{ marginBottom: '10px', fontSize: '14px' }}>बैकग्राउंड का रंग:</h4>
           <div style={{ display: 'flex', justifyContent: 'center', gap: '10px', marginBottom: '14px' }}>
             {[
-              { name: 'सफेद', color: '#ffffff' },
-              { name: 'हल्का नीला', color: '#bfdbfe' },
               { name: 'गहरा नीला', color: '#1d4ed8' },
+              { name: 'हल्का नीला', color: '#bfdbfe' },
+              { name: 'सफेद', color: '#ffffff' },
               { name: 'हल्का ग्रे', color: '#e5e7eb' },
               { name: 'लाल', color: '#ef4444' }
             ].map((c) => (
@@ -223,7 +225,7 @@ export default function AIPassportTest() {
             >
               <img
                 src={processedImage}
-                alt="AI Passport Result"
+                alt="Clean AI Passport Result"
                 style={{ width: '100%', height: '100%', objectFit: 'cover' }}
               />
             </div>
