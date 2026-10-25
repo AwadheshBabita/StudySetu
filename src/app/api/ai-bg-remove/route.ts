@@ -19,21 +19,21 @@ export async function POST(req: NextRequest) {
       token: token as `hf_${string}`,
     });
 
-    const result = await client.predict('/predict', {
+    const result: any = await client.predict('/run', {
       image: imageBlob,
     });
 
-    const outputData: any = (result as any).data?.[0];
+    const transparentFile = result?.data?.[1] || result?.data?.[0];
     let finalBase64 = '';
 
-    if (outputData?.url) {
-      const imgRes = await fetch(outputData.url);
+    if (transparentFile?.url) {
+      const imgRes = await fetch(transparentFile.url);
       const arrBuf = await imgRes.arrayBuffer();
       finalBase64 = Buffer.from(arrBuf).toString('base64');
-    } else if (typeof outputData === 'string' && outputData.startsWith('data:image')) {
-      finalBase64 = outputData.replace(/^data:image\/\w+;base64,/, '');
+    } else if (typeof transparentFile === 'string' && transparentFile.startsWith('data:image')) {
+      finalBase64 = transparentFile.replace(/^data:image\/\w+;base64,/, '');
     } else {
-      throw new Error('AI स्पेस से आउटपुट प्राप्त नहीं हुआ');
+      throw new Error('ट्रांसपेरेंट PNG प्राप्त नहीं हुई');
     }
 
     return NextResponse.json({
@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
       image: `data:image/png;base64,${finalBase64}`,
     });
   } catch (error: any) {
-    console.error('HF Space Execution Error:', error);
+    console.error('HF Space /run Error:', error);
     return NextResponse.json(
       { error: error.message || 'AI बैकग्राउंड रिमूवल विफल रहा' },
       { status: 500 }
