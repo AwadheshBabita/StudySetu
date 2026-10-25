@@ -9,6 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@huggingface/inference": "^4.13.32",
     "@imgly/background-removal": "^1.7.0",
     "@types/sortablejs": "^1.15.9",
     "jspdf": "^4.2.1",
