@@ -10,20 +10,21 @@ export async function POST(req: NextRequest) {
 
     const token = process.env.HF_TOKEN;
     if (!token) {
-      return NextResponse.json({ error: 'HF_TOKEN सेट नहीं है' }, { status: 500 });
+      console.error('HF_TOKEN is missing in environment variables');
+      return NextResponse.json({ error: 'HF_TOKEN सर्वर पर नहीं मिला। Vercel में Environment Variable चेक करें।' }, { status: 500 });
     }
 
-    // बेस64 को बाइनरी बफर में बदलना
     const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '');
     const buffer = Buffer.from(base64Data, 'base64');
 
-    // Hugging Face RMBG-1.4 मॉडल कॉल
-    const response = await fetch(
+    // Hugging Face RMBG-1.4 Inference Call
+    let response = await fetch(
       'https://api-inference.huggingface.co/models/briaai/RMBG-1.4',
       {
         headers: {
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/octet-stream',
+          'x-wait-for-model': 'true', // मॉडल लोड होने तक इंतज़ार करने का फ़्लैग
         },
         method: 'POST',
         body: buffer,
@@ -32,8 +33,8 @@ export async function POST(req: NextRequest) {
 
     if (!response.ok) {
       const errText = await response.text();
-      console.error('HF API Error:', errText);
-      return NextResponse.json({ error: 'AI मॉडल से रिस्पांस नहीं मिला', details: errText }, { status: 502 });
+      console.error('HF API Error Response:', response.status, errText);
+      return NextResponse.json({ error: `AI मॉडल एरर (${response.status}): ${errText}` }, { status: 502 });
     }
 
     const imageArrayBuffer = await response.arrayBuffer();
@@ -44,7 +45,7 @@ export async function POST(req: NextRequest) {
       image: `data:image/png;base64,${resultBase64}`,
     });
   } catch (error: any) {
-    console.error('Server Route Error:', error);
+    console.error('Server Route Internal Error:', error);
     return NextResponse.json({ error: error.message || 'इंटरनल सर्वर एरर' }, { status: 500 });
   }
 }
