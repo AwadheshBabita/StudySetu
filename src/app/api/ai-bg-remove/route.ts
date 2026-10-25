@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { HfInference } from '@huggingface/inference';
+import { Client } from '@gradio/client';
 
 export async function POST(req: NextRequest) {
   try {
@@ -10,34 +10,40 @@ export async function POST(req: NextRequest) {
     }
 
     const token = process.env.HF_TOKEN;
-    if (!token) {
-      return NextResponse.json({ error: 'HF_TOKEN सर्वर पर सेट नहीं है।' }, { status: 500 });
-    }
 
-    const hf = new HfInference(token);
-
-    // बेस64 डेटा को बाइनरी ब्लॉब (Blob) में बदलना
     const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '');
     const buffer = Buffer.from(base64Data, 'base64');
     const imageBlob = new Blob([buffer], { type: 'image/jpeg' });
 
-    // Hugging Face AI मॉडल से इमेज-टू-इमेज कटिंग
-    const resultBlob = await hf.imageToImage({
-      model: 'briaai/RMBG-1.4',
-      inputs: imageBlob,
+    const client = await Client.connect('briaai/BRIA-RMBG-1.4', {
+      token: token as `hf_${string}`,
     });
 
-    const arrayBuffer = await resultBlob.arrayBuffer();
-    const resultBase64 = Buffer.from(arrayBuffer).toString('base64');
+    const result = await client.predict('/predict', {
+      image: imageBlob,
+    });
+
+    const outputData: any = (result as any).data?.[0];
+    let finalBase64 = '';
+
+    if (outputData?.url) {
+      const imgRes = await fetch(outputData.url);
+      const arrBuf = await imgRes.arrayBuffer();
+      finalBase64 = Buffer.from(arrBuf).toString('base64');
+    } else if (typeof outputData === 'string' && outputData.startsWith('data:image')) {
+      finalBase64 = outputData.replace(/^data:image\/\w+;base64,/, '');
+    } else {
+      throw new Error('AI स्पेस से आउटपुट प्राप्त नहीं हुआ');
+    }
 
     return NextResponse.json({
       success: true,
-      image: `data:image/png;base64,${resultBase64}`,
+      image: `data:image/png;base64,${finalBase64}`,
     });
   } catch (error: any) {
-    console.error('HF Inference Route Error:', error);
+    console.error('HF Space Execution Error:', error);
     return NextResponse.json(
-      { error: error.message || 'AI प्रोसेसिंग के दौरान त्रुटि हुई।' },
+      { error: error.message || 'AI बैकग्राउंड रिमूवल विफल रहा' },
       { status: 500 }
     );
   }
