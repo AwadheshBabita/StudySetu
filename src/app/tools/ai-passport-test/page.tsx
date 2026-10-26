@@ -11,6 +11,39 @@ const BG_COLORS = [
   { id: 'cream', name: 'Light Cream', hex: '#FDFBF7', border: '#E2E8F0' },
 ];
 
+// शार्पनिंग (कैनवास कनवल्शन फिल्टर)
+function applySharpen(ctx: CanvasRenderingContext2D, w: number, h: number, amount: number) {
+  if (amount <= 0) return;
+  const imgData = ctx.getImageData(0, 0, w, h);
+  const data = imgData.data;
+  const copy = new Uint8ClampedArray(data);
+
+  // शार्पनिंग स्ट्रेंथ (0 से 1.2 के बीच सीमित)
+  const weight = (amount / 100) * 0.8;
+  const center = 1 + 4 * weight;
+
+  for (let y = 1; y < h - 1; y++) {
+    for (let x = 1; x < w - 1; x++) {
+      const idx = (y * w + x) * 4;
+
+      // अगर पिक्सेल ट्रांसपेरेंट है तो छोड़ें
+      if (copy[idx + 3] === 0) continue;
+
+      for (let c = 0; c < 3; c++) {
+        const top = copy[((y - 1) * w + x) * 4 + c];
+        const bottom = copy[((y + 1) * w + x) * 4 + c];
+        const left = copy[(y * w + (x - 1)) * 4 + c];
+        const right = copy[(y * w + (x + 1)) * 4 + c];
+        const current = copy[idx + c];
+
+        const val = current * center - (top + bottom + left + right) * weight;
+        data[idx + c] = Math.min(255, Math.max(0, val));
+      }
+    }
+  }
+  ctx.putImageData(imgData, 0, 0);
+}
+
 export default function PassportApp() {
   const [step, setStep] = useState<1 | 2 | 3>(1);
 
@@ -23,11 +56,12 @@ export default function PassportApp() {
   const [isProcessingAI, setIsProcessingAI] = useState<boolean>(false);
   const [cutoutImage, setCutoutImage] = useState<string | null>(null);
   const [selectedBg, setSelectedBg] = useState<string>('#0066CC');
-  const [activeBottomTool, setActiveBottomTool] = useState<'size-kb' | 'brightness' | 'contrast' | 'namedate' | null>('size-kb');
+  const [activeBottomTool, setActiveBottomTool] = useState<'clarity' | 'size-kb' | 'brightness' | 'contrast' | 'namedate' | null>('clarity');
 
   // ट्यूनिंग
   const [brightness, setBrightness] = useState<number>(100);
   const [contrast, setContrast] = useState<number>(100);
+  const [clarity, setClarity] = useState<number>(0); // 0 = नो इफ़ेक्ट, ओरिजिनल सुरक्षित
 
   // साइज़, DPI और KB कंट्रोल
   const [unit, setUnit] = useState<'px' | 'mm' | 'cm' | 'inch'>('mm');
@@ -131,7 +165,6 @@ export default function PassportApp() {
     };
   }, [isDragging, isResizing, onPointerMove, onPointerUp]);
 
-  // बैकग्राउंड रिमूव कॉल
   const executeCropAndAI = async () => {
     if (!imgRef.current) return;
     setIsProcessingAI(true);
@@ -177,6 +210,7 @@ export default function PassportApp() {
       if (!res.ok) throw new Error(data.error || 'कटिंग विफल रही');
 
       setCutoutImage(data.image);
+      setClarity(0); // नया कटआउट आने पर क्लैरिटी 0 पर रीसेट
       setStep(3);
     } catch (err: any) {
       alert('एरर: ' + err.message);
@@ -185,7 +219,6 @@ export default function PassportApp() {
     }
   };
 
-  // फाइनल कैनवास रेंडर (साइज़, DPI, कलर्स और नेम-डेट)
   const renderFinalCanvas = useCallback(() => {
     if (!cutoutImage || !canvasFinalRef.current) return;
     const canvas = canvasFinalRef.current;
@@ -216,16 +249,19 @@ export default function PassportApp() {
       canvas.width = pxW;
       canvas.height = pxH;
 
-      // 1. बैकग्राउंड रंग भरना
+      // 1. बैकग्राउंड रंग
       ctx.fillStyle = selectedBg;
       ctx.fillRect(0, 0, pxW, pxH);
 
       // 2. फिल्टर्स
       ctx.filter = `brightness(${brightness}%) contrast(${contrast}%)`;
-
-      // 3. कटआउट ड्रा
       ctx.drawImage(img, 0, 0, pxW, pxH);
       ctx.filter = 'none';
+
+      // 3. स्मार्ट शार्पनेस / क्लैरिटी (अगर स्लाइडर बढ़ाया गया हो)
+      if (clarity > 0) {
+        applySharpen(ctx, pxW, pxH, clarity);
+      }
 
       // 4. नेम व डेट बार
       if (enableNameDate) {
@@ -251,7 +287,7 @@ export default function PassportApp() {
         }
       }
     };
-  }, [cutoutImage, selectedBg, brightness, contrast, unit, widthVal, heightVal, dpi, enableNameDate, candidateName, photoDate]);
+  }, [cutoutImage, selectedBg, brightness, contrast, clarity, unit, widthVal, heightVal, dpi, enableNameDate, candidateName, photoDate]);
 
   useEffect(() => {
     if (step === 3 && cutoutImage) {
@@ -259,7 +295,6 @@ export default function PassportApp() {
     }
   }, [step, cutoutImage, renderFinalCanvas]);
 
-  // डाउनलोड फ़ंक्शन (टारगेट KB लूप के साथ)
   const downloadWithTargetKb = () => {
     const canvas = canvasFinalRef.current;
     if (!canvas) return;
@@ -267,7 +302,6 @@ export default function PassportApp() {
     let quality = 0.95;
     let dataUrl = canvas.toDataURL('image/jpeg', quality);
 
-    // टारगेट केबी संपीड़न
     for (let i = 0; i < 10; i++) {
       const head = 'data:image/jpeg;base64,';
       const curKb = Math.round(((dataUrl.length - head.length) * 3) / 4 / 1024);
@@ -447,7 +481,6 @@ export default function PassportApp() {
                 </button>
               </div>
 
-              {/* बटन टेक्स्ट साफ और सटीक */}
               <button
                 disabled={isProcessingAI}
                 onClick={executeCropAndAI}
@@ -472,13 +505,13 @@ export default function PassportApp() {
               <span className="w-6 h-6 rounded-full border border-slate-300 text-slate-500 flex items-center justify-center text-xs">?</span>
             </div>
 
-            {/* मुख्य प्रीव्यू (बिना किसी साइड पैलेट के बिल्कुल साफ़) */}
+            {/* मुख्य प्रीव्यू */}
             <div className="flex-1 flex flex-col items-center justify-center p-3 bg-slate-50">
               <div className="relative shadow-2xl rounded-lg overflow-hidden border-2 border-slate-200 max-h-[46vh] aspect-[3.5/4.5]">
                 <canvas ref={canvasFinalRef} className="w-full h-full object-contain" />
               </div>
 
-              {/* कलर पैलेट - अब फोटो के ठीक नीचे सीधे हॉरिजॉन्टल रो में */}
+              {/* कलर पैलेट */}
               <div className="mt-3 flex items-center gap-3 bg-white px-4 py-2 rounded-full shadow-sm border border-slate-200">
                 <span className="text-[11px] font-semibold text-slate-500">रंग:</span>
                 {BG_COLORS.map((c) => (
@@ -500,10 +533,38 @@ export default function PassportApp() {
             {/* निचला स्टूडियो कंट्रोल पैनल */}
             <div className="p-3 bg-white border-t border-slate-100 flex flex-col gap-2.5">
               
-              {/* 1. साइज़, पिक्सेल और KB पैनल */}
+              {/* 1. शार्पनेस / क्लैरिटी स्लाइडर (टेस्ट टूल) */}
+              {activeBottomTool === 'clarity' && (
+                <div className="p-2.5 bg-blue-50/50 rounded-xl border border-blue-200 flex flex-col gap-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-blue-900 flex items-center gap-1">
+                      <span>✨</span> HD क्लैरिटी / शार्पनेस (टेस्ट):
+                    </span>
+                    <button
+                      onClick={() => setClarity(0)}
+                      className="text-[10px] bg-white border border-slate-200 px-2 py-0.5 rounded text-slate-600 hover:text-red-600 font-semibold"
+                    >
+                      रीसेट (0%)
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      value={clarity}
+                      onChange={(e) => setClarity(Number(e.target.value))}
+                      className="flex-1 accent-blue-600 h-1.5 bg-slate-200 rounded cursor-pointer"
+                    />
+                    <span className="text-xs font-mono font-bold text-blue-700 w-10 text-right">{clarity}%</span>
+                  </div>
+                  <span className="text-[10px] text-slate-500">0% पर फोटो असली रहेगी। बालों और किनारों को निखारने के लिए 15-35% तक बढ़ाएँ।</span>
+                </div>
+              )}
+
+              {/* 2. साइज़, पिक्सेल और KB पैनल */}
               {activeBottomTool === 'size-kb' && (
                 <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-200 flex flex-col gap-2 text-xs">
-                  {/* यूनिट्स सेलेक्टर */}
                   <div className="flex items-center justify-between">
                     <span className="font-bold text-slate-700">माप इकाई:</span>
                     <div className="flex gap-1 bg-white p-0.5 rounded border border-slate-200">
@@ -525,7 +586,6 @@ export default function PassportApp() {
                     </div>
                   </div>
 
-                  {/* चौड़ाई, ऊंचाई और DPI */}
                   <div className="grid grid-cols-3 gap-2">
                     <div>
                       <span className="text-[10px] text-slate-500">चौड़ाई ({unit})</span>
@@ -559,7 +619,6 @@ export default function PassportApp() {
                     </div>
                   </div>
 
-                  {/* KB स्लाइडर व इनपुट */}
                   <div className="border-t border-slate-200 pt-2 flex items-center justify-between">
                     <span className="font-bold text-slate-700">फाइल साइज़ (KB):</span>
                     <div className="flex items-center gap-2">
@@ -586,7 +645,7 @@ export default function PassportApp() {
                 </div>
               )}
 
-              {/* 2. ब्राइटनेस / कॉन्ट्रास्ट स्लाइडर */}
+              {/* 3. ब्राइटनेस / कॉन्ट्रास्ट */}
               {(activeBottomTool === 'brightness' || activeBottomTool === 'contrast') && (
                 <div className="flex items-center gap-3 px-3 py-2 bg-slate-50 rounded-xl border border-slate-200">
                   <span className="text-xs font-bold capitalize text-slate-700 w-20">
@@ -608,7 +667,7 @@ export default function PassportApp() {
                 </div>
               )}
 
-              {/* 3. नेम व डेट पैनल */}
+              {/* 4. नेम व डेट */}
               {activeBottomTool === 'namedate' && (
                 <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-200 flex flex-col gap-2">
                   <label className="flex items-center gap-2 cursor-pointer font-bold text-xs text-slate-700">
@@ -640,8 +699,15 @@ export default function PassportApp() {
                 </div>
               )}
 
-              {/* टूलबार बटन (ज़ूम और रोटेट हटाकर साइज़/KB और नेम-डेट जोड़े गए) */}
-              <div className="grid grid-cols-4 gap-1 text-center border-t border-slate-100 pt-1">
+              {/* टूलबार बटन */}
+              <div className="grid grid-cols-5 gap-1 text-center border-t border-slate-100 pt-1">
+                <button
+                  onClick={() => setActiveBottomTool('clarity')}
+                  className={`flex flex-col items-center gap-1 text-[10px] py-1 rounded-lg ${activeBottomTool === 'clarity' ? 'text-blue-600 font-bold bg-blue-50' : 'text-slate-600'}`}
+                >
+                  <span className="text-base">✨</span>
+                  <span>क्लैरिटी</span>
+                </button>
                 <button
                   onClick={() => setActiveBottomTool('size-kb')}
                   className={`flex flex-col items-center gap-1 text-[10px] py-1 rounded-lg ${activeBottomTool === 'size-kb' ? 'text-blue-600 font-bold bg-blue-50' : 'text-slate-600'}`}
